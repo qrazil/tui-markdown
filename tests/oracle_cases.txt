@@ -1,0 +1,251 @@
+=== paragraph
+A single short paragraph of plain words.
+=== two-paragraphs
+First paragraph here.
+
+Second paragraph, a little longer than the first one is.
+=== long-paragraph
+The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly and the jovial wizard quietly examines a dozen liquor jugs on the table.
+=== soft-break
+line one
+line two
+line three
+=== hard-break-spaces
+first line  
+second line
+=== hard-break-backslash
+first line\
+second line
+=== atx-1
+# Heading one
+=== atx-all-levels
+# One
+## Two
+### Three
+#### Four
+##### Five
+###### Six
+=== atx-closing-hashes
+## Closed heading ##
+=== setext
+Setext One
+==========
+
+Setext Two
+----------
+=== heading-with-emphasis
+## A *slanted* and **bold** heading with `code`
+=== emphasis
+Some *emphasis*, some _more_, and some ***both at once***.
+=== strong
+This is **strong** and __also strong__ text.
+=== nested-emphasis
+**bold with *italic* inside** and *italic with **bold** inside*.
+=== code-span
+Use `printf("%d")` and ``a ` tick`` to print.
+=== link
+A [link to somewhere](https://example.org/path?q=1) in a sentence.
+=== link-title
+A [titled link](https://example.org "The Title") here.
+=== link-relative
+See [the other file](other.md#deep-end) and [an anchor](#top).
+=== autolink
+Mail <someone@example.org> or visit <https://example.org/a>.
+=== image
+An image ![alt text here](pic.png) in a line.
+=== reference-link
+A [reference link][ref] and a [collapsed][] one.
+
+[ref]: https://example.org/ref
+[collapsed]: https://example.org/collapsed
+=== entities
+Fish &amp; chips &lt;tag&gt; &quot;quoted&quot; &copy; 2026
+=== raw-special
+Less < than and greater > than & ampersand "quote" 'apostrophe'.
+=== escapes
+\*not emphasis\* and \# not heading and \[not a link\](x).
+=== blockquote
+> A quoted line
+> continues here.
+=== blockquote-nested
+> outer
+>
+> > inner quote
+> > continues
+>
+> outer again
+=== blockquote-with-list
+> Quote with a list:
+>
+> - one
+> - two
+=== bullets
+- apple
+- banana
+- cherry
+=== bullets-star-plus
+* star item
+* another star
+
++ plus item
++ another plus
+=== ordered
+1. first
+2. second
+3. third
+=== ordered-start
+7. seven
+8. eight
+9. nine
+10. ten
+=== nested-list
+- parent one
+  - child a
+  - child b
+    - grandchild
+- parent two
+=== loose-list
+- loose one
+
+- loose two
+
+- loose three
+=== list-paragraphs
+- item with two paragraphs
+
+  the second paragraph of the item
+
+- next item
+=== list-code
+- item with code
+
+  ```
+  code in item
+  ```
+- next
+=== ordered-nested
+1. outer one
+   1. inner one
+   2. inner two
+2. outer two
+=== fence
+```
+plain fenced code
+  keeps   spacing
+```
+=== fence-info
+```python
+def hello():
+    return "world"
+```
+=== fence-tilde
+~~~
+tilde fence
+~~~
+=== fence-empty
+```
+```
+=== indented-code
+Paragraph before.
+
+    indented code line 1
+    indented code line 2
+
+Paragraph after.
+=== rule
+Above
+
+---
+
+Below
+
+***
+
+End
+=== table
+| Name | Qty |
+|------|-----|
+| apple | 3 |
+| banana | 12 |
+=== table-align
+| Left | Center | Right |
+|:-----|:------:|------:|
+| a | b | c |
+| longer text | mid | 1 |
+=== table-inline
+| Col `code` | **bold** |
+|---|---|
+| [link](https://x.y) | *it* |
+=== table-wide
+| Heading number one | Heading number two | Heading number three |
+|---|---|---|
+| cell text that is long | more cell text that is long | and a third long cell here |
+=== cjk
+日本語のテキストは空白がなくても折り返されます。これは長い文章です。
+=== cjk-mixed
+Mixed 中文 and English 文字 together, with 한국어 as well.
+=== cjk-heading
+## 見出しのテスト
+=== emoji
+Rocket 🚀 and family 👨‍👩‍👧 and flag 🇯🇵 and thumbs 👍🏽 end.
+=== combining
+Café and naïve and nĩno resumé.
+=== accents
+Café naïve señor über straße.
+=== long-word
+Supercalifragilisticexpialidocious_and_even_longer_than_any_reasonable_line_width_allows.
+=== long-url
+See https://example.org/a/very/long/path/that/goes/on/and/on/and/on/forever/and/ever?query=value&other=thing for details.
+=== tabs
+Tab	separated	words	here.
+=== leading-spaces
+   three leading spaces paragraph
+=== trailing-spaces
+trailing spaces here   
+=== unicode-punct
+“Curly quotes” — em dash – en dash … ellipsis ©
+=== empty
+=== blank-lines
+=== only-heading-and-rule
+# Title
+
+---
+=== heading-no-space
+#NotAHeading
+=== mixed-doc
+# Title
+
+Intro with *emphasis* and a [link](x.md).
+
+## List
+
+- one
+- two
+
+> quote
+
+```
+code
+```
+
+| a | b |
+|---|---|
+| 1 | 2 |
+=== crlf
+line one\r\nline two\r\n\r\nnext paragraph\r\n
+=== deep-quote-list
+> - a
+>   - b
+>     > deep
+=== numbers-list-then-bullets
+1. one
+2. two
+
+- a
+- b
+=== link-in-heading
+# Title with [a link](https://example.org)
+=== code-in-link
+[`code link`](https://example.org)
+=== wide-and-narrow
+ＡＢＣ fullwidth latin and ｈａｌｆ.

@@ -245,10 +245,6 @@ void Reader.handle(Tag tag) {
 
 void Reader.add_image(Tag tag) {
     str alt = tag.attributes.get("alt").or("");
-    str label = "[image]";
-    if (alt.size() > 0) {
-        label = "[image: " + alt + "]";
-    }
     int target = link;
     if (target < 0) {
         links.push(MDV_model.Link(tag.attributes.get("src").or(""), tag.attributes.get("title").or(""), alt));
@@ -257,7 +253,16 @@ void Reader.add_image(Tag tag) {
         MDV_model.Link outer = links[open_label];
         links[open_label] = MDV_model.Link(outer.href, outer.title, outer.label + alt);
     }
-    spans.push(MDV_model.Span(label, style: base_style | MDV_model.DECO | MDV_model.IMAGE | MDV_model.LINK, link: target));
+    int mark = base_style | MDV_model.DECO | MDV_model.IMAGE | MDV_model.LINK;
+    if (alt.size() == 0) {
+        spans.push(MDV_model.Span("[image]", style: mark, link: target));
+        return;
+    }
+    // The alt text is part of the document (search finds it, yank copies it);
+    // the brackets around it are decoration.
+    spans.push(MDV_model.Span("[image: ", style: mark, link: target));
+    spans.push(MDV_model.Span(alt, style: base_style | MDV_model.IMAGE | MDV_model.LINK, link: target));
+    spans.push(MDV_model.Span("]", style: mark, link: target));
 }
 
 /// The styled spans of `html`, an inline fragment as `MD_inlines.render`

@@ -1,0 +1,44 @@
+// Dumps what the viewer would show as text, and what term-markdown renders
+// as HTML, for each file named on the command line:
+//
+//   t_oracle WIDTH FILE...
+//
+// For each file: a line `@@@TEXT FILE`, the `Row.content()` of every row of
+// the layout (decoration such as bullets and borders left out), then
+// `@@@HTML FILE` and the HTML term-markdown makes of the same source.
+// tests/oracle.py compares the two with whitespace taken out.
+
+import MDV_layout;
+import MDV_model;
+import MDV_prepare;
+import markdown.MD_blocks;
+import markdown.MD_render;
+import MDV_app;
+import io;
+import os;
+
+List<str> argv = os.args();
+int width = 40;
+match (argv[1].parse_int()) {
+    case Some(int given): {
+        width = given;
+    }
+    case None: {
+    }
+}
+for (int index in 2 .. argv.size()) {
+    match (MDV_app.read_text(argv[index])) {
+        case Ok(str source): {
+            print("@@@TEXT " + argv[index]);
+            MDV_model.Layout layout = MDV_layout.layout(MDV_prepare.prepare(source), width);
+            for (MDV_model.Row row in layout.rows) {
+                print(row.content());
+            }
+            print("@@@HTML " + argv[index]);
+            print(MD_render.document(MD_blocks.parse(source)));
+        }
+        case Err(io.Error error): {
+            print("@@@ERROR " + argv[index] + " " + error.to_str());
+        }
+    }
+}

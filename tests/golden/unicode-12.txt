@@ -1,0 +1,64 @@
+# Unicode ユ
+  ニコード
+
+日本語のテキ
+ストは空白が
+なくても折り
+返されます。
+中文也是一样
+的,没有空格
+。한국어도
+마찬가지입니
+다.
+
+Mixed 中文
+and English
+文字, with a
+café (e +
+U+0301) and
+a naïve
+señor.
+
+Emoji 🚀
+family 👨‍👩‍👧
+flag 🇯🇵
+thumbs 👍🏽
+stay whole.
+
+• 日本語の項
+  目
+• 한국어 항
+  목 with
+  trailing
+  English
+  words that
+  wrap
+  around
+  • ネスト
+
+│ 引用された
+│ 日本語のテ
+│ キストは、
+│ 引用の棒の
+│ 右側で折り
+│ 返されます
+│ 。
+
+┌─────┬────┐
+│ 名  │ 数 │
+│ 前  │    │
+├─────┼────┤
+│ り  │  3 │
+│ ん  │    │
+│ ご  │    │
+│ み  │ 12 │
+│ か  │    │
+│ ん  │    │
+└─────┴────┘
+
+ＡＢＣ
+fullwidth
+Latin and ｈ
+ａｌｆwidth
+katakana
+ｱｲｳ.

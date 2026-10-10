@@ -1,0 +1,29 @@
+# Unicode ユニコード
+
+日本語のテキストは空白がなくても折り返さ
+れます。中文也是一样的,没有空格。한국어
+도 마찬가지입니다.
+
+Mixed 中文 and English 文字, with a café
+(e + U+0301) and a naïve señor.
+
+Emoji 🚀 family 👨‍👩‍👧 flag 🇯🇵 thumbs 👍🏽
+stay whole.
+
+• 日本語の項目
+• 한국어 항목 with trailing English
+  words that wrap around
+  • ネスト
+
+│ 引用された日本語のテキストは、引用の棒
+│ の右側で折り返されます。
+
+┌────────┬────┐
+│ 名前   │ 数 │
+├────────┼────┤
+│ りんご │  3 │
+│ みかん │ 12 │
+└────────┴────┘
+
+ＡＢＣ fullwidth Latin and ｈａｌｆwidth
+katakana ｱｲｳ.

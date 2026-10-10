@@ -1,0 +1,458 @@
+// Unit tests for the viewer's state machine: no terminal, no pty. A `Viewer`
+// is built on a fixed document, keys are typed by name, and the window, the
+// status-line message, the hits and the requests are read back.
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_keys;
+import MDV_model;
+import MDV_prepare;
+import MDV_viewer;
+import io;
+import term;
+import tui.TUI_app;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.check(str name, bool is_true) {
+    if (is_true) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name);
+    }
+}
+
+void Tally.same(str name, str got, str want) {
+    if (got == want) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": got [" + got + "] want [" + want + "]");
+    }
+}
+
+void Tally.number(str name, int got, int want) {
+    same(name, str(got), str(want));
+}
+
+void typed(MDV_viewer.Viewer viewer, str text) {
+    for (term.Key each in MDV_keys.keys_of(text)) {
+        TUI_app.Action ignored = viewer.key(each);
+    }
+}
+
+/// Five sections of ten one-line paragraphs: 1 + 5 * (2 + 20) + ... rows.
+str long_document() {
+    List<str> parts = ["# Title\n\nIntro line with a [link](#section-3), a [file](docs/guide.md#setup),\nan [outside](https://example.org/x) one and a [picture](pic.png).\n"];
+    for (int section in 1 .. 6) {
+        parts.push("\n## Section " + str(section) + "\n");
+        for (int line in 1 .. 11) {
+            parts.push("\nParagraph " + str(line) + " of section " + str(section) + " mentions Needle" + str(line) + ".\n");
+        }
+    }
+    return parts.join("");
+}
+
+MDV_viewer.Viewer fresh(str text, int columns, int rows) {
+    return MDV_viewer.open([], "doc.md", text, columns, rows);
+}
+
+str top_line(MDV_viewer.Viewer viewer) {
+    return viewer.layout.rows[viewer.top].plain();
+}
+
+bool is_quit(TUI_app.Action action) {
+    match (action) {
+        case Continue: {
+            return false;
+        }
+        case Redraw: {
+            return false;
+        }
+        case Quit: {
+            return true;
+        }
+    }
+}
+
+bool is_redraw(TUI_app.Action action) {
+    match (action) {
+        case Continue: {
+            return false;
+        }
+        case Redraw: {
+            return true;
+        }
+        case Quit: {
+            return false;
+        }
+    }
+}
+
+str mode_name(MDV_viewer.Viewer viewer) {
+    match (viewer.mode) {
+        case Normal: {
+            return "normal";
+        }
+        case Search: {
+            return "search";
+        }
+        case Outline: {
+            return "outline";
+        }
+        case Help: {
+            return "help";
+        }
+    }
+}
+
+TUI_app.Action press_one(MDV_viewer.Viewer viewer, str name) {
+    return viewer.key(MDV_keys.key_of(name));
+}
+
+str first_request(MDV_viewer.Viewer viewer) {
+    List<MDV_viewer.Request> all = viewer.drain();
+    if (all.size() == 0) {
+        return "none";
+    }
+    match (all[0]) {
+        case Reload: {
+            return "reload";
+        }
+        case Open(str path): {
+            return "open " + path;
+        }
+        case Copy(str text): {
+            return "copy " + text;
+        }
+    }
+}
+
+Tally tally = Tally();
+str text = long_document();
+// --- geometry ------------------------------------------------------------------
+MDV_viewer.Viewer viewer = fresh(text, 80, 24);
+tally.number("height is rows - 1", viewer.height(), 23);
+tally.number("text width is columns - 2 margins", viewer.layout.width, 78);
+tally.number("a wide terminal caps the text width", fresh(text, 200, 24).layout.width, 100);
+tally.number("a narrow terminal keeps a minimum", fresh(text, 5, 24).layout.width, 8);
+tally.number("the text is centred when capped", fresh(text, 200, 24).left(), 50);
+tally.number("starts at the top", viewer.top, 0);
+tally.check("max_top leaves a full window", viewer.max_top() == viewer.total() - 23);
+// --- scrolling -----------------------------------------------------------------
+typed(viewer, "j");
+tally.number("j scrolls one", viewer.top, 1);
+typed(viewer, "5j");
+tally.number("5j scrolls five", viewer.top, 6);
+typed(viewer, "k");
+tally.number("k scrolls back one", viewer.top, 5);
+typed(viewer, "100k");
+tally.number("k clamps at the top", viewer.top, 0);
+tally.check("down arrow scrolls", is_redraw(press_one(viewer, "down")) && viewer.top == 1);
+tally.check("up arrow scrolls", is_redraw(press_one(viewer, "up")) && viewer.top == 0);
+viewer.press(["ctrl-d"]);
+tally.number("Ctrl-d is half a page", viewer.top, 11);
+viewer.press(["ctrl-u"]);
+tally.number("Ctrl-u is half a page back", viewer.top, 0);
+viewer.press(["ctrl-f"]);
+tally.number("Ctrl-f is a page less one line", viewer.top, 22);
+viewer.press(["ctrl-b"]);
+tally.number("Ctrl-b is a page back", viewer.top, 0);
+viewer.press(["space"]);
+tally.number("Space is a page", viewer.top, 22);
+viewer.press(["pgup"]);
+tally.number("PgUp is a page back", viewer.top, 0);
+typed(viewer, "2");
+viewer.press(["ctrl-d"]);
+tally.number("2 Ctrl-d is two half pages", viewer.top, 22);
+typed(viewer, "G");
+tally.number("G goes to the end", viewer.top, viewer.max_top());
+tally.number("percent at the end", viewer.percent(), 100);
+typed(viewer, "gg");
+tally.number("gg goes to the top", viewer.top, 0);
+tally.number("percent at the top", viewer.percent(), 0);
+typed(viewer, "40G");
+tally.number("40G goes to row 40", viewer.top, 39);
+viewer.press(["home"]);
+tally.number("Home goes to the top", viewer.top, 0);
+viewer.press(["end"]);
+tally.number("End goes to the end", viewer.top, viewer.max_top());
+typed(viewer, "5gg");
+tally.number("5gg goes to row 5", viewer.top, 4);
+typed(viewer, "0");
+tally.number("a lone 0 is not a count", viewer.count, 0);
+typed(viewer, "10");
+tally.number("10 is a count", viewer.count, 10);
+viewer.press(["esc"]);
+tally.number("Esc clears the count", viewer.count, 0);
+typed(viewer, "g");
+tally.same("g waits for a second key", viewer.pending, "g");
+typed(viewer, "x");
+tally.same("g then x forgets g", viewer.pending, "");
+tally.check("q quits", is_quit(press_one(viewer, "q")));
+tally.check("Ctrl-c quits", is_quit(press_one(viewer, "ctrl-c")));
+tally.check("a stray key redraws, never quits", !is_quit(press_one(viewer, "Z")));
+// --- headings ----------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+tally.number("headings found", viewer.layout.headings.size(), 6);
+typed(viewer, "]]");
+tally.number("]] goes to the next heading", viewer.top, viewer.layout.headings[1].row);
+typed(viewer, "]]");
+tally.number("]] again", viewer.top, viewer.layout.headings[2].row);
+typed(viewer, "[[");
+tally.number("[[ goes back", viewer.top, viewer.layout.headings[1].row);
+typed(viewer, "gg3]]");
+tally.number("3]] goes three on", viewer.top, viewer.layout.headings[3].row);
+typed(viewer, "G");
+int last_top = viewer.top;
+typed(viewer, "]]");
+tally.number("]] past the last reachable heading stays put", viewer.top, last_top);
+viewer = fresh("# Only\n\ntext\n", 80, 24);
+typed(viewer, "]]");
+tally.same("]] with nothing below says so", viewer.message, "no more headings");
+viewer = fresh(text, 80, 24);
+typed(viewer, "gg[[");
+tally.same("[[ at the top says so", viewer.message, "no earlier heading");
+typed(viewer, "gg4G");
+typed(viewer, "[[");
+tally.number("[[ with no heading above goes to the top", viewer.top, 0);
+// --- search ----------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "/needle5");
+tally.same("typing shows in the query", viewer.query, "needle5");
+tally.check("typing is Search mode", mode_name(viewer) == "search");
+typed(viewer, "x");
+viewer.press(["backspace", "backspace"]);
+tally.same("backspace edits the query", viewer.query, "needle");
+viewer.press(["ctrl-u"]);
+tally.same("Ctrl-u empties the query", viewer.query, "");
+typed(viewer, "needle5");
+viewer.press(["enter"]);
+tally.check("Enter leaves Search mode", mode_name(viewer) == "normal");
+tally.number("smart case: lower-case finds Needle5 in every section", viewer.hits.size(), 5);
+tally.number("the first hit is current", viewer.hit, 0);
+tally.check("the hit is on screen", viewer.is_visible(viewer.hits[0].row));
+tally.same("hit count in the message", viewer.message, "5 match(es) for needle5");
+typed(viewer, "n");
+tally.number("n moves on", viewer.hit, 1);
+tally.check("n shows the hit", viewer.is_visible(viewer.hits[1].row));
+typed(viewer, "3n");
+tally.number("3n moves three", viewer.hit, 4);
+typed(viewer, "n");
+tally.number("n wraps", viewer.hit, 0);
+tally.check("wrapping says so", viewer.message.contains("continuing at TOP"));
+typed(viewer, "N");
+tally.number("N wraps backwards", viewer.hit, 4);
+typed(viewer, "N");
+tally.number("N moves back", viewer.hit, 3);
+viewer.press(["esc"]);
+tally.number("Esc clears the hits", viewer.hits.size(), 0);
+typed(viewer, "/NEEDLE5");
+viewer.press(["enter"]);
+tally.number("an upper-case pattern is case sensitive", viewer.hits.size(), 0);
+tally.check("no match is said", viewer.message.starts_with("pattern not found"));
+typed(viewer, "/Needle5");
+viewer.press(["enter"]);
+tally.number("exact case matches", viewer.hits.size(), 5);
+typed(viewer, "gg");
+typed(viewer, "/");
+viewer.press(["enter"]);
+tally.number("an empty search keeps the old one", viewer.hits.size(), 5);
+typed(viewer, "gg/");
+viewer.press(["esc"]);
+tally.check("Esc leaves Search mode", mode_name(viewer) == "normal");
+tally.same("and drops the query", viewer.query, "");
+typed(viewer, "G/needle1");
+viewer.press(["enter"]);
+tally.check("a search from the bottom starts at the top of the window", viewer.hit >= 0);
+viewer = fresh(text, 80, 24);
+typed(viewer, "n");
+tally.same("n with no search says so", viewer.message, "no previous search");
+typed(viewer, "/section 3 mentions");
+viewer.press(["enter"]);
+tally.number("a hit holds a whole phrase", viewer.hits.size(), 10);
+tally.number("the hit's range is the phrase", viewer.hits[0].end - viewer.hits[0].start, 18);
+// --- links ---------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+tally.number("four links", viewer.layout.links.size(), 4);
+viewer.press(["tab"]);
+tally.number("Tab focuses link 0", viewer.link, 0);
+tally.same("and shows its target", viewer.message, "#section-3");
+viewer.press(["tab"]);
+tally.number("Tab again focuses 1", viewer.link, 1);
+viewer.press(["tab", "tab"]);
+tally.number("Tab reaches link 3", viewer.link, 3);
+viewer.press(["tab"]);
+tally.number("Tab wraps", viewer.link, 0);
+viewer.press(["backtab"]);
+tally.number("Shift-Tab wraps backwards", viewer.link, 3);
+viewer.press(["esc"]);
+tally.number("Esc drops the focus", viewer.link, -1);
+viewer.press(["tab", "enter"]);
+tally.number("Enter on #section-3 jumps to that heading", viewer.top, viewer.layout.headings[3].row);
+tally.number("and pushes a place", viewer.back.size(), 1);
+viewer.press(["ctrl-o"]);
+tally.number("Ctrl-o goes back", viewer.top, 0);
+tally.number("and pops the place", viewer.back.size(), 0);
+viewer.press(["ctrl-o"]);
+tally.same("nothing to go back to", viewer.message, "nothing to go back to");
+viewer.press(["esc", "tab", "tab", "enter"]);
+tally.same("a relative markdown link asks to open it", first_request(viewer), "open docs/guide.md");
+tally.number("and pushes the place for it", viewer.back.size(), 1);
+tally.same("remembering the anchor", viewer.pending_anchor, "setup");
+viewer.load_failed("docs/guide.md: not found");
+tally.number("a failed open pops the place", viewer.back.size(), 0);
+tally.same("and says why", viewer.message, "docs/guide.md: not found");
+tally.same("and forgets the anchor", viewer.pending_anchor, "");
+viewer.press(["esc", "tab", "tab", "tab", "enter"]);
+tally.same("an outside link is copied", first_request(viewer), "copy https://example.org/x");
+tally.number("and does not push a place", viewer.back.size(), 0);
+viewer.press(["tab", "enter"]);
+tally.same("a non-markdown path is copied", first_request(viewer), "copy pic.png");
+tally.check("is_external: https", MDV_viewer.is_external("https://x.y"));
+tally.check("is_external: mailto", MDV_viewer.is_external("mailto:a@b.c"));
+tally.check("is_external: scheme-relative", MDV_viewer.is_external("//cdn.example/x.js"));
+tally.check("is_external: relative path is not", !MDV_viewer.is_external("docs/a.md"));
+tally.check("is_external: a colon in a path segment is not a scheme", !MDV_viewer.is_external("a/b:c.md"));
+tally.check("is_external: anchor is not", !MDV_viewer.is_external("#top"));
+tally.check("is_external: a drive-ish single letter is not", !MDV_viewer.is_external("c:/x"));
+tally.same("resolve: relative to the file's directory", MDV_viewer.resolve("docs/a.md", "b.md"), "docs/b.md");
+tally.same("resolve: no directory", MDV_viewer.resolve("a.md", "b.md"), "b.md");
+tally.same("resolve: leading ./", MDV_viewer.resolve("docs/a.md", "./b.md"), "docs/b.md");
+tally.same("resolve: absolute", MDV_viewer.resolve("docs/a.md", "/etc/b.md"), "/etc/b.md");
+tally.same("resolve: up a directory", MDV_viewer.resolve("docs/a.md", "../b.md"), "docs/../b.md");
+// --- opening another document, then back -------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "40G");
+viewer.press(["tab", "tab"]);
+int before = viewer.top;
+viewer.press(["enter"]);
+tally.same("link to a file", first_request(viewer), "open docs/guide.md");
+viewer.opened("docs/guide.md", "# Guide\n\n## Setup\n\nsteps\n");
+tally.same("the name changes", viewer.name, "docs/guide.md");
+tally.number("a new document starts at the top (anchor not yet resolved)", viewer.top, 0);
+tally.number("setup anchor", viewer.layout.headings.size(), 2);
+viewer.press(["ctrl-o"]);
+tally.same("back asks for the old file", first_request(viewer), "open doc.md");
+viewer.opened("doc.md", text);
+tally.number("and the place is restored", viewer.top, before);
+tally.number("and the link focus", viewer.link, 1);
+// --- the outline ---------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "o");
+tally.check("o opens the outline", mode_name(viewer) == "outline");
+tally.number("the outline has the title as the one root", viewer.outline.roots.size(), 1);
+tally.number("and five sections under it", viewer.outline.roots[0].children.size(), 5);
+tally.number("the cursor starts on the first heading", viewer.outline.cursor, 0);
+typed(viewer, "jjj");
+viewer.press(["enter"]);
+tally.check("Enter closes it", mode_name(viewer) == "normal");
+tally.number("and jumps to the heading", viewer.top, viewer.layout.headings[3].row);
+tally.number("and pushes a place", viewer.back.size(), 1);
+typed(viewer, "o");
+tally.number("reopened: the cursor is on the heading in view", viewer.outline.cursor, 3);
+viewer.press(["esc"]);
+tally.check("Esc closes it", mode_name(viewer) == "normal");
+typed(viewer, "o");
+tally.check("q closes the outline", !is_quit(press_one(viewer, "q")) && mode_name(viewer) == "normal");
+typed(viewer, "o");
+tally.check("Ctrl-c quits from the outline", is_quit(press_one(viewer, "ctrl-c")));
+viewer = fresh("no headings here\n", 80, 24);
+typed(viewer, "o");
+tally.same("no headings, no outline", viewer.message, "no headings");
+tally.check("and the mode stays Normal", mode_name(viewer) == "normal");
+viewer = fresh("# A\n\n### C\n\n## B\n\n#### D\n", 80, 24);
+typed(viewer, "o");
+tally.number("a skipped level still nests", viewer.outline.roots[0].children.size(), 2);
+// --- help ------------------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "?");
+tally.check("? opens help", mode_name(viewer) == "help");
+typed(viewer, "j");
+tally.check("j scrolls help", viewer.help_top == 1 && mode_name(viewer) == "help");
+typed(viewer, "x");
+tally.check("any other key closes it", mode_name(viewer) == "normal" && viewer.help_top == 0);
+typed(viewer, "?");
+tally.check("Ctrl-c quits from help", is_quit(press_one(viewer, "ctrl-c")));
+// --- yank --------------------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "y");
+tally.same("y yanks the block at the top", first_request(viewer), "copy Title");
+viewer.press(["tab"]);
+typed(viewer, "y");
+tally.same("y with a link focused yanks its target", first_request(viewer), "copy #section-3");
+viewer.press(["esc"]);
+typed(viewer, "2j");
+typed(viewer, "y");
+tally.check("y yanks a paragraph's plain text", first_request(viewer).starts_with("copy Intro line with a link"));
+// --- reload ------------------------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "r");
+tally.same("r asks for a reload", first_request(viewer), "reload");
+typed(viewer, "gg3]]");
+int section_row = viewer.top;
+int line_before = viewer.layout.rows[section_row].line;
+viewer.refresh(text.split("Intro line").join("Intro LINE"));
+tally.same("a reload says so", viewer.message, "reloaded");
+tally.number("a reload with the same lines keeps the window", viewer.top, section_row);
+tally.same("and so the same heading", viewer.layout.rows[viewer.top].plain(), "## Section 3");
+tally.number("and the same source line", viewer.layout.rows[viewer.top].line, line_before);
+viewer.refresh("# New first line\n\nan added paragraph\n\n" + text);
+tally.check("a reload that adds lines still lands inside the text", viewer.top <= viewer.max_top() && viewer.layout.rows[viewer.top].line <= line_before);
+viewer.refresh("short\n");
+tally.number("a shrunk file clamps the window", viewer.top, 0);
+// --- resize -----------------------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+typed(viewer, "]]]]");
+str heading_before = top_line(viewer);
+viewer.resize(30, 24);
+tally.number("narrower relayouts", viewer.layout.width, 28);
+tally.same("and keeps the place", top_line(viewer), heading_before);
+viewer.resize(80, 10);
+tally.number("a shorter window changes the height", viewer.height(), 9);
+tally.same("same place", top_line(viewer), heading_before);
+viewer.resize(80, 24);
+typed(viewer, "G");
+viewer.resize(80, 40);
+tally.check("growing at the bottom stays in range", viewer.top <= viewer.max_top());
+viewer.resize(20, 3);
+tally.check("a tiny window does not crash", viewer.height() >= 1);
+// --- image alt text is searchable, its brackets are not -------------------------------------------
+viewer = fresh("A ![sunset over water](pic.png) here.\n", 80, 24);
+typed(viewer, "/sunset");
+viewer.press(["enter"]);
+tally.number("the alt text of an image is found", viewer.hits.size(), 1);
+viewer.press(["esc"]);
+typed(viewer, "/image:");
+viewer.press(["enter"]);
+tally.number("the decoration around it is not", viewer.hits.size(), 0);
+viewer.press(["esc"]);
+typed(viewer, "y");
+tally.same("yank leaves the decoration out", first_request(viewer), "copy A sunset over water here.");
+// --- the file set --------------------------------------------------------------------------------------------
+viewer = MDV_viewer.open(["a.md", "b.md", "c.md"], "b.md", "# B\n", 80, 24);
+typed(viewer, ">");
+tally.same(">: next file", first_request(viewer), "open c.md");
+viewer.opened("c.md", "# C\n");
+typed(viewer, ">");
+tally.same("no file after the last", viewer.message, "no more files");
+typed(viewer, "<");
+tally.same("<: previous file", first_request(viewer), "open b.md");
+viewer = MDV_viewer.open([], "<stdin>", "# S\n", 80, 24);
+typed(viewer, ">");
+tally.same("> with no file set", viewer.message, "not one of several files");
+// --- prepare helpers -------------------------------------------------------------------------------------------
+tally.same("slug: plain", MDV_prepare.slugify("Hello World"), "hello-world");
+tally.same("slug: punctuation dropped", MDV_prepare.slugify("What's new? (v2)"), "whats-new-v2");
+tally.same("slug: hyphens and underscores kept", MDV_prepare.slugify("a-b_c"), "a-b_c");
+tally.same("slug: non-ASCII kept", MDV_prepare.slugify("日本語 Café"), "日本語-café");
+MDV_viewer.Viewer dupes = fresh("# Same\n\n# Same\n\n# Same\n", 80, 24);
+tally.same("duplicate slugs: second", dupes.layout.headings[1].slug, "same-1");
+tally.same("duplicate slugs: third", dupes.layout.headings[2].slug, "same-2");
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

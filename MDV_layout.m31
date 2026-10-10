@@ -102,7 +102,7 @@ str plain_of(List<MDV_model.Span> spans) {
     for (MDV_model.Span span in spans) {
         if (span.has_bits(MDV_model.BREAK)) {
             parts.push("\n");
-        } else if (!span.has_bits(MDV_model.IMAGE)) {
+        } else if (!(span.has_bits(MDV_model.IMAGE) && span.has_bits(MDV_model.DECO))) {
             parts.push(span.text);
         }
     }
