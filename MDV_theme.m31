@@ -1,0 +1,208 @@
+// What a span looks like: style bits to terminal colours.
+//
+// A layout says what each run IS (`MDV_model` style bits); this module is the
+// only place that says what that looks like. Two palettes, light and dark,
+// in the xterm 256-colour palette so any terminal that has colour at all
+// shows something sensible (the diff renderer folds them to 16 colours when
+// it must). `plain()` is the third theme, for NO_COLOR: no colour and no
+// attribute either, so a pipe gets text.
+
+import MDV_model;
+import tui.TUI_style;
+
+pub type Theme {
+    pub str name;
+    pub bool is_dark;
+    /// No colour, no attributes: text only.
+    pub bool is_plain = false;
+}
+
+pub Theme dark() {
+    return Theme("dark", true);
+}
+
+pub Theme light() {
+    return Theme("light", false);
+}
+
+pub Theme plain() {
+    return Theme("plain", true, is_plain: true);
+}
+
+/// The theme called `name` ("dark", "light", "plain"), if there is one.
+pub Option<Theme> named(str name) {
+    if (name == "dark") {
+        return Option<Theme>.Some(dark());
+    }
+    if (name == "light") {
+        return Option<Theme>.Some(light());
+    }
+    if (name == "plain") {
+        return Option<Theme>.Some(plain());
+    }
+    return Option<Theme>.None;
+}
+
+TUI_style.Colour palette(int index) {
+    return TUI_style.Colour.Indexed(index);
+}
+
+int heading_colour(Theme theme, int level) {
+    if (theme.is_dark) {
+        if (level == 1) {
+            return 39;
+        }
+        if (level == 2) {
+            return 75;
+        }
+        if (level == 3) {
+            return 114;
+        }
+        if (level == 4) {
+            return 180;
+        }
+        if (level == 5) {
+            return 176;
+        }
+        return 245;
+    }
+    if (level == 1) {
+        return 25;
+    }
+    if (level == 2) {
+        return 31;
+    }
+    if (level == 3) {
+        return 28;
+    }
+    if (level == 4) {
+        return 94;
+    }
+    if (level == 5) {
+        return 90;
+    }
+    return 240;
+}
+
+/// The style of a span whose style bits are `bits`.
+pub TUI_style.Style style_for(Theme theme, int bits) {
+    if (theme.is_plain) {
+        return TUI_style.Style();
+    }
+    int attrs = 0;
+    TUI_style.Colour foreground = TUI_style.Colour.Default;
+    TUI_style.Colour background = TUI_style.Colour.Default;
+    int level = MDV_model.level_of(bits);
+    if ((bits & MDV_model.BOLD) != 0) {
+        attrs = attrs | TUI_style.BOLD;
+    }
+    if ((bits & MDV_model.ITALIC) != 0) {
+        attrs = attrs | TUI_style.ITALIC;
+    }
+    if ((bits & MDV_model.STRIKE) != 0) {
+        attrs = attrs | TUI_style.STRIKE;
+    }
+    if (level > 0) {
+        foreground = palette(heading_colour(theme, level));
+    }
+    if ((bits & MDV_model.CODE) != 0) {
+        if (theme.is_dark) {
+            foreground = palette(216);
+            background = palette(236);
+        } else {
+            foreground = palette(124);
+            background = palette(254);
+        }
+    }
+    if ((bits & MDV_model.BLOCK) != 0) {
+        if (theme.is_dark) {
+            foreground = palette(252);
+            background = palette(235);
+        } else {
+            foreground = palette(236);
+            background = palette(254);
+        }
+    }
+    if ((bits & MDV_model.LINK) != 0) {
+        attrs = attrs | TUI_style.UNDERLINE;
+        if (theme.is_dark) {
+            foreground = palette(75);
+        } else {
+            foreground = palette(25);
+        }
+    }
+    if ((bits & MDV_model.IMAGE) != 0) {
+        attrs = attrs | TUI_style.ITALIC;
+    }
+    if ((bits & MDV_model.TASK) != 0) {
+        attrs = attrs | TUI_style.BOLD;
+        if (theme.is_dark) {
+            foreground = palette(114);
+        } else {
+            foreground = palette(28);
+        }
+    }
+    if ((bits & MDV_model.HEAD_CELL) != 0 && level == 0) {
+        attrs = attrs | TUI_style.BOLD;
+    }
+    // Chrome is quiet, except where it is the heading's own `##` or a code
+    // block's padding, which keep their colour.
+    if ((bits & MDV_model.DECO) != 0 && level == 0 && (bits & MDV_model.BLOCK) == 0 && (bits & MDV_model.IMAGE) == 0) {
+        attrs = attrs | TUI_style.DIM;
+        if (theme.is_dark) {
+            foreground = palette(244);
+        } else {
+            foreground = palette(246);
+        }
+    }
+    if ((bits & MDV_model.DECO) != 0 && (bits & MDV_model.BLOCK) != 0) {
+        // Padding of a code block: background only.
+        foreground = palette(252);
+        if (!theme.is_dark) {
+            foreground = palette(236);
+        }
+    }
+    return TUI_style.Style(foreground: foreground, background: background, attrs: attrs);
+}
+
+/// The style of a search hit; the current one stands out from the rest.
+pub TUI_style.Style hit_style(Theme theme, bool is_current) {
+    if (theme.is_plain) {
+        if (is_current) {
+            return TUI_style.Style(attrs: TUI_style.REVERSE | TUI_style.BOLD | TUI_style.UNDERLINE);
+        }
+        return TUI_style.Style(attrs: TUI_style.REVERSE);
+    }
+    if (is_current) {
+        return TUI_style.Style(foreground: palette(16), background: palette(214), attrs: TUI_style.BOLD);
+    }
+    return TUI_style.Style(foreground: palette(16), background: palette(180));
+}
+
+/// `base`, marked as the focused link.
+pub TUI_style.Style focus_style(Theme theme, TUI_style.Style base) {
+    return base.with_attrs(base.attrs | TUI_style.REVERSE | TUI_style.BOLD);
+}
+
+/// The status line.
+pub TUI_style.Style status_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style(attrs: TUI_style.REVERSE);
+    }
+    if (theme.is_dark) {
+        return TUI_style.Style(foreground: palette(252), background: palette(238));
+    }
+    return TUI_style.Style(foreground: palette(236), background: palette(252));
+}
+
+/// Popups sit on a background of their own so the text under them does not
+/// show through.
+pub TUI_style.Style popup_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style();
+    }
+    if (theme.is_dark) {
+        return TUI_style.Style(foreground: palette(252), background: palette(235));
+    }
+    return TUI_style.Style(foreground: palette(236), background: palette(255));
+}

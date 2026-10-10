@@ -1,0 +1,248 @@
+// Width-aware wrapping of styled spans.
+//
+// `TUI_text.wrap` wraps a `str`; a document line is many spans of different
+// styles that must stay separate, so the same rules are applied here to a
+// list of spans:
+//
+//   - a line breaks at a run of spaces, which is dropped;
+//   - and between two grapheme clusters when either is two columns wide, so
+//     Chinese, Japanese and Korean text (which has no spaces) wraps;
+//   - a word wider than the whole line is cut at the last cluster that fits;
+//   - a cluster wider than the line is put on a line of its own;
+//   - a hard break (`BREAK` span) ends the line.
+//
+// Nothing here splits a grapheme cluster, so `e` + U+0301 and an emoji with a
+// skin tone stay whole. The result is lines of spans with adjacent same-style
+// spans merged, and no span that holds a space at the end of a line.
+//
+// Plain ASCII, which is nearly all of any document, is scanned byte by byte
+// and cut into words; only text with a byte outside 0x20..0x7E goes through
+// `unicode.graphemes`.
+
+import MDV_model;
+import tui.TUI_text;
+import unicode;
+
+/// A run that cannot be broken inside: a word, or one wide character.
+type Unit {
+    List<MDV_model.Span> pieces;
+    int width;
+    /// Did a space come before this unit in the source?
+    bool has_gap;
+    /// The span the space was in, so a gap inside a link is part of the link.
+    MDV_model.Span gap;
+    bool is_break;
+}
+
+type Tokenizer {
+    List<Unit> units;
+    List<MDV_model.Span> pieces;
+    int width = 0;
+    bool has_gap = false;
+    MDV_model.Span gap = MDV_model.Span(" ");
+    bool is_gap_pending = false;
+    MDV_model.Span pending = MDV_model.Span(" ");
+}
+
+void Tokenizer.finish_unit() {
+    if (pieces.size() == 0) {
+        return;
+    }
+    units.push(Unit(pieces, width, has_gap, gap, false));
+    pieces = [];
+    width = 0;
+    has_gap = false;
+}
+
+void Tokenizer.space(MDV_model.Span carrier) {
+    finish_unit();
+    is_gap_pending = true;
+    pending = MDV_model.Span(" ", style: carrier.style, link: carrier.link);
+}
+
+void Tokenizer.hard_break() {
+    finish_unit();
+    is_gap_pending = false;
+    units.push(Unit([], 0, false, pending, true));
+}
+
+void Tokenizer.add(str text, int columns, MDV_model.Span carrier) {
+    if (pieces.size() == 0) {
+        has_gap = is_gap_pending;
+        gap = pending;
+        is_gap_pending = false;
+    }
+    int count = pieces.size();
+    if (count > 0 && pieces[count - 1].style == carrier.style && pieces[count - 1].link == carrier.link) {
+        pieces[count - 1] = MDV_model.Span(pieces[count - 1].text + text, style: carrier.style, link: carrier.link);
+    } else {
+        pieces.push(MDV_model.Span(text, style: carrier.style, link: carrier.link));
+    }
+    width = width + columns;
+}
+
+void Tokenizer.take(MDV_model.Span span) {
+    str text = span.text;
+    if (is_plain(text)) {
+        int length = text.size();
+        int index = 0;
+        while (index < length) {
+            if (text.byte_at(index) == ' ') {
+                space(span);
+                index = index + 1;
+                continue;
+            }
+            int start = index;
+            while (index < length && text.byte_at(index) != ' ') {
+                index = index + 1;
+            }
+            add(text.substr(start, index), index - start, span);
+        }
+        return;
+    }
+    for (str cluster in unicode.graphemes(text)) {
+        if (is_space_char(cluster)) {
+            space(span);
+            continue;
+        }
+        int columns = TUI_text.width(cluster);
+        if (columns >= 2) {
+            finish_unit();
+            add(cluster, columns, span);
+            finish_unit();
+        } else {
+            add(cluster, columns, span);
+        }
+    }
+}
+
+bool is_plain(str text) {
+    for (int i in 0 .. text.size()) {
+        int value = text.byte_at(i);
+        if (value < ' ' || value > '~') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_space_char(str cluster) {
+    return cluster == " " || cluster == "\t" || cluster == "\n" || cluster == "\r";
+}
+
+List<Unit> tokenize(List<MDV_model.Span> spans) {
+    Tokenizer tokens = Tokenizer([], []);
+    for (MDV_model.Span span in spans) {
+        if (span.has_bits(MDV_model.BREAK)) {
+            tokens.hard_break();
+        } else {
+            tokens.take(span);
+        }
+    }
+    tokens.finish_unit();
+    return tokens.units;
+}
+
+/// The lines being built.
+type Lines {
+    int room;
+    List<List<MDV_model.Span>> done;
+    List<MDV_model.Span> line;
+    int used = 0;
+}
+
+void Lines.push_span(MDV_model.Span span) {
+    int count = line.size();
+    if (count > 0 && line[count - 1].style == span.style && line[count - 1].link == span.link) {
+        line[count - 1] = MDV_model.Span(line[count - 1].text + span.text, style: span.style, link: span.link);
+    } else {
+        line.push(span);
+    }
+}
+
+void Lines.flush() {
+    done.push(line);
+    line = [];
+    used = 0;
+}
+
+/// Put `text` (one piece of a unit wider than a line) on the lines, cutting
+/// between clusters.
+void Lines.pour(MDV_model.Span piece) {
+    if (is_plain(piece.text)) {
+        int offset = 0;
+        int length = piece.text.size();
+        while (offset < length) {
+            if (used >= room) {
+                flush();
+            }
+            int take = room - used;
+            if (take > length - offset) {
+                take = length - offset;
+            }
+            push_span(MDV_model.Span(piece.text.substr(offset, offset + take), style: piece.style, link: piece.link));
+            used = used + take;
+            offset = offset + take;
+        }
+        return;
+    }
+    for (str cluster in unicode.graphemes(piece.text)) {
+        int columns = TUI_text.width(cluster);
+        if (used > 0 && used + columns > room) {
+            flush();
+        }
+        push_span(MDV_model.Span(cluster, style: piece.style, link: piece.link));
+        used = used + columns;
+    }
+}
+
+/// `spans` wrapped to `width` columns: one list of spans per line. Always at
+/// least one line.
+pub List<List<MDV_model.Span>> wrap(List<MDV_model.Span> spans, int width) {
+    int room = width;
+    if (room < 1) {
+        room = 1;
+    }
+    Lines lines = Lines(room, [], []);
+    for (Unit unit in tokenize(spans)) {
+        if (unit.is_break) {
+            lines.flush();
+            continue;
+        }
+        int gap = 0;
+        if (unit.has_gap && lines.used > 0) {
+            gap = 1;
+        }
+        if (lines.used + gap + unit.width > room && lines.used > 0) {
+            lines.flush();
+            gap = 0;
+        }
+        if (unit.width > room) {
+            for (MDV_model.Span piece in unit.pieces) {
+                lines.pour(piece);
+            }
+            continue;
+        }
+        if (gap == 1) {
+            lines.push_span(unit.gap);
+            lines.used = lines.used + 1;
+        }
+        for (MDV_model.Span piece in unit.pieces) {
+            lines.push_span(piece);
+        }
+        lines.used = lines.used + unit.width;
+    }
+    if (lines.line.size() > 0 || lines.done.size() == 0) {
+        lines.flush();
+    }
+    return lines.done;
+}
+
+/// Terminal columns taken by `spans`.
+pub int spans_width(List<MDV_model.Span> spans) {
+    int total = 0;
+    for (MDV_model.Span span in spans) {
+        total = total + TUI_text.width(span.text);
+    }
+    return total;
+}

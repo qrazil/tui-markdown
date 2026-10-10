@@ -1,0 +1,248 @@
+// A `Viewer` on the screen.
+//
+// `Screen.render` is a `TUI_widget.Widget`: given a buffer it draws the rows
+// the viewer's window shows, the status line, and whichever popup is open.
+// It reads the viewer and changes nothing but the window height the viewer
+// keeps (so a resize that arrives between two keys is seen).
+
+import MDV_model;
+import MDV_theme;
+import MDV_viewer;
+import tui.TUI_buffer;
+import tui.TUI_geometry;
+import tui.TUI_menu;
+import tui.TUI_style;
+import tui.TUI_text;
+import tui.TUI_widget;
+
+pub type Screen {
+    pub MDV_viewer.Viewer viewer;
+    pub MDV_theme.Theme theme;
+}
+
+/// `spans` of one row drawn at `x`, `y`: the search hits marked, and the
+/// focused link reversed.
+void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_model.Row row) {
+    List<MDV_viewer.Hit> row_hits = viewer.hits_between(row_index, row_index + 1);
+    int column = x;
+    // Byte offset into `row.content()`, which skips decoration.
+    int offset = 0;
+    for (MDV_model.Span span in row.spans) {
+        TUI_style.Style base = MDV_theme.style_for(theme, span.style);
+        if (span.link >= 0 && span.link == viewer.link) {
+            base = MDV_theme.focus_style(theme, base);
+        }
+        if (span.has_bits(MDV_model.DECO) || row_hits.size() == 0) {
+            column = column + buffer.set_str(column, y, span.text, base);
+            if (!span.has_bits(MDV_model.DECO)) {
+                offset = offset + span.text.size();
+            }
+            continue;
+        }
+        // Cut the span wherever a hit starts or ends inside it.
+        int length = span.text.size();
+        int from = 0;
+        while (from < length) {
+            int upto = length;
+            TUI_style.Style piece_style = base;
+            bool is_inside = false;
+            for (int index in 0 .. row_hits.size()) {
+                MDV_viewer.Hit each = row_hits[index];
+                int begin = each.start - offset;
+                int finish = each.end - offset;
+                if (begin <= from && finish > from) {
+                    is_inside = true;
+                    if (finish < upto) {
+                        upto = finish;
+                    }
+                    bool is_current = viewer.hit >= 0 && viewer.hits[viewer.hit].row == row_index && viewer.hits[viewer.hit].start == each.start;
+                    piece_style = MDV_theme.hit_style(theme, is_current);
+                } else if (begin > from && begin < upto) {
+                    upto = begin;
+                }
+            }
+            if (!is_inside) {
+                piece_style = base;
+            }
+            column = column + buffer.set_str(column, y, span.text.substr(from, upto), piece_style);
+            from = upto;
+        }
+        offset = offset + length;
+    }
+}
+
+str Screen.file_marker() {
+    match (viewer.files.index_of(viewer.name)) {
+        case Some(int slot): {
+            if (viewer.files.size() > 1) {
+                return " [" + str(slot + 1) + "/" + str(viewer.files.size()) + "]";
+            }
+        }
+        case None: {
+        }
+    }
+    return "";
+}
+
+void Screen.draw_status(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    int y = area.y + area.height - 1;
+    TUI_style.Style style = MDV_theme.status_style(theme);
+    buffer.fill(TUI_geometry.Rect(area.x, y, area.width, 1), " ", style);
+    str right = count_text(viewer) + str(viewer.percent()) + "%";
+    if (viewer.total() > 0) {
+        int bottom = viewer.top + viewer.height();
+        if (bottom > viewer.total()) {
+            bottom = viewer.total();
+        }
+        right = count_text(viewer) + str(bottom) + "/" + str(viewer.total()) + " " + str(viewer.percent()) + "%";
+    }
+    int right_width = TUI_text.width(right);
+    str left = "";
+    match (viewer.mode) {
+        case Search: {
+            left = "/" + viewer.query;
+        }
+        case Normal: {
+            if (viewer.message.size() > 0) {
+                left = viewer.message;
+            } else if (viewer.link >= 0) {
+                left = viewer.layout.links[viewer.link].href;
+            } else {
+                left = viewer.name + file_marker();
+                if (viewer.needle.size() > 0 && viewer.hits.size() > 0 && viewer.hit >= 0) {
+                    left = left + "  /" + viewer.needle + " " + str(viewer.hit + 1) + "/" + str(viewer.hits.size());
+                }
+            }
+        }
+        case Outline: {
+            left = "outline: j/k move, l/h open/close, Enter go, Esc close";
+        }
+        case Help: {
+            left = "any key closes";
+        }
+    }
+    int room = area.width - right_width - 3;
+    if (room < 4) {
+        room = area.width - 1;
+        right = "";
+    }
+    buffer.set_str(area.x + 1, y, TUI_text.truncate(left, room), style);
+    if (right.size() > 0) {
+        buffer.set_str(area.x + area.width - right_width - 1, y, right, style);
+    }
+    match (viewer.mode) {
+        case Search: {
+            int cursor_x = area.x + 1 + TUI_text.width(left);
+            if (cursor_x < area.x + area.width) {
+                buffer.set_str(cursor_x, y, " ", TUI_style.Style(attrs: TUI_style.REVERSE));
+            }
+        }
+        case Normal: {
+        }
+        case Outline: {
+        }
+        case Help: {
+        }
+    }
+}
+
+void Screen.draw_outline(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    TUI_geometry.Rect box = popup_area(area, 64, area.height * 3 / 4);
+    TUI_style.Style style = MDV_theme.popup_style(theme);
+    buffer.fill(box, " ", style);
+    TUI_widget.Block frame = TUI_widget.Block(borders: TUI_widget.Borders.Rounded, title: " Outline ", style: style, title_style: style.with_attrs(TUI_style.BOLD));
+    frame.render(buffer, box);
+    viewer.outline.style = style;
+    viewer.outline.render(buffer, frame.inner(box));
+}
+
+void Screen.draw_help(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    List<TUI_menu.Item> all = help_items();
+    int room = area.height - 4;
+    if (room < 3) {
+        room = 3;
+    }
+    int first = viewer.help_top;
+    int most = all.size() - room;
+    if (most < 0) {
+        most = 0;
+    }
+    if (first > most) {
+        first = most;
+        viewer.help_top = most;
+    }
+    List<TUI_menu.Item> shown = [];
+    for (int index in first .. all.size()) {
+        if (shown.size() >= room) {
+            break;
+        }
+        shown.push(all[index]);
+    }
+    TUI_style.Style style = MDV_theme.popup_style(theme);
+    TUI_menu.WhichKey menu = TUI_menu.WhichKey("Keys", shown, style: style, title_style: style.with_attrs(TUI_style.BOLD));
+    menu.render(buffer, area);
+}
+
+pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    if (area.is_empty()) {
+        return;
+    }
+    viewer.resize(area.width, area.height);
+    int height = viewer.height();
+    int x = area.x + viewer.left();
+    for (int line in 0 .. height) {
+        int index = viewer.top + line;
+        if (index >= viewer.total()) {
+            break;
+        }
+        draw_row(buffer, x, area.y + line, index, viewer.layout.rows[index]);
+    }
+    draw_status(buffer, area);
+    match (viewer.mode) {
+        case Outline: {
+            draw_outline(buffer, area);
+        }
+        case Help: {
+            draw_help(buffer, area);
+        }
+        case Normal: {
+        }
+        case Search: {
+        }
+    }
+}
+
+str count_text(MDV_viewer.Viewer viewer) {
+    if (viewer.pending.size() > 0 && viewer.count > 0) {
+        return str(viewer.count) + viewer.pending + " ";
+    }
+    if (viewer.pending.size() > 0) {
+        return viewer.pending + " ";
+    }
+    if (viewer.count > 0) {
+        return str(viewer.count) + " ";
+    }
+    return "";
+}
+
+TUI_geometry.Rect popup_area(TUI_geometry.Rect area, int wide, int tall) {
+    int width = wide;
+    if (width > area.width - 2) {
+        width = area.width - 2;
+    }
+    int height = tall;
+    if (height > area.height - 2) {
+        height = area.height - 2;
+    }
+    if (width < 1) {
+        width = 1;
+    }
+    if (height < 1) {
+        height = 1;
+    }
+    return TUI_geometry.Rect(area.x + (area.width - width) / 2, area.y + (area.height - height) / 2, width, height);
+}
+
+pub List<TUI_menu.Item> help_items() {
+    return [TUI_menu.Item("j k", "scroll a line (counts work: 5j)"), TUI_menu.Item("C-d C-u", "half a page down / up"), TUI_menu.Item("C-f C-b", "a page down / up (also Space, PgDn)"), TUI_menu.Item("gg G", "top / bottom (12G is row 12)"), TUI_menu.Item("]] [[", "next / previous heading"), TUI_menu.Item("/", "search; Enter runs it, Esc cancels"), TUI_menu.Item("n N", "next / previous match"), TUI_menu.Item("o", "outline of the headings"), TUI_menu.Item("Tab S-Tab", "focus the next / previous link"), TUI_menu.Item("Enter", "follow the focused link"), TUI_menu.Item("C-o Bksp", "back to where you were"), TUI_menu.Item("y", "yank the link, or the paragraph (OSC 52)"), TUI_menu.Item("r", "reload the file"), TUI_menu.Item("> <", "next / previous file"), TUI_menu.Item("Esc", "clear search, link focus, count"), TUI_menu.Item("?", "this help"), TUI_menu.Item("q", "quit")];
+}

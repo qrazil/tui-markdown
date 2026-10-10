@@ -1,0 +1,438 @@
+// Layout: the model at one width, as rows of styled spans.
+//
+// Pure: the same document and width always give the same rows, and nothing
+// here knows about colours (see `MDV_theme`) or the terminal. A row's spans
+// say what each run IS through style bits; `DECO` marks everything that is
+// chrome (bullets, quote bars, table borders, a rule, padding) so that what
+// is left over is exactly the document's text, which the oracle test checks
+// against term-markdown's own HTML.
+
+import MDV_model;
+import MDV_wrap;
+import tui.TUI_text;
+
+const str BAR = "\u{2502} ";
+const str BULLET = "\u{2022} ";
+const str DASH = "\u{2500}";
+
+/// Rows and the headings found among them, rows counted from this part's own
+/// first row.
+type Part {
+    List<MDV_model.Row> rows;
+    List<MDV_model.Heading> heads;
+}
+
+void Part.append(Part other) {
+    int offset = rows.size();
+    for (MDV_model.Heading head in other.heads) {
+        heads.push(MDV_model.Heading(head.level, head.text, head.slug, head.row + offset, head.line));
+    }
+    for (MDV_model.Row row in other.rows) {
+        rows.push(row);
+    }
+}
+
+void Part.blank() {
+    rows.push(blank_row());
+}
+
+/// Does the part end in a row that is not blank?
+bool Part.has_content() {
+    return rows.size() > 0;
+}
+
+/// What the whole layout shares while it runs.
+type Context {
+    List<MDV_model.Link> links;
+    /// The yankable text of each leaf block.
+    List<str> texts;
+}
+
+str spaces(int count) {
+    if (count <= 0) {
+        return "";
+    }
+    return " ".repeat(count);
+}
+
+MDV_model.Span chrome(str text, int extra) {
+    return MDV_model.Span(text, style: MDV_model.DECO | extra, link: -1);
+}
+
+MDV_model.Row blank_row() {
+    return MDV_model.Row([]);
+}
+
+/// `part` with a prefix on every row: `first` on the first, `rest` on the
+/// others. Blank rows get `blank` (or nothing).
+Part indent(Part part, MDV_model.Span first, MDV_model.Span rest, bool is_blank_marked) {
+    Part out = Part([], part.heads);
+    for (int index in 0 .. part.rows.size()) {
+        MDV_model.Row row = part.rows[index];
+        MDV_model.Span lead = rest;
+        if (index == 0) {
+            lead = first;
+        }
+        if (row.spans.size() == 0 && !is_blank_marked && index > 0) {
+            out.rows.push(row);
+            continue;
+        }
+        List<MDV_model.Span> spans = [lead];
+        for (MDV_model.Span span in row.spans) {
+            spans.push(span);
+        }
+        out.rows.push(MDV_model.Row(spans, line: row.line, block: row.block));
+    }
+    return out;
+}
+
+/// Lay out the lines of one leaf block: wrapped spans, tagged with the block.
+Part leaf(Context context, List<List<MDV_model.Span>> lines, int line, str text) {
+    context.texts.push(text);
+    int block = context.texts.size() - 1;
+    Part part = Part([], []);
+    for (List<MDV_model.Span> spans in lines) {
+        part.rows.push(MDV_model.Row(spans, line: line, block: block));
+    }
+    return part;
+}
+
+str plain_of(List<MDV_model.Span> spans) {
+    List<str> parts = [];
+    for (MDV_model.Span span in spans) {
+        if (span.has_bits(MDV_model.BREAK)) {
+            parts.push("\n");
+        } else if (!span.has_bits(MDV_model.IMAGE)) {
+            parts.push(span.text);
+        }
+    }
+    return parts.join("");
+}
+
+Part paragraph(Context context, MDV_model.Text text, int width) {
+    return leaf(context, MDV_wrap.wrap(text.spans, width), text.line, plain_of(text.spans));
+}
+
+Part heading(Context context, MDV_model.HeadingBlock block, int width) {
+    str marks = "#".repeat(block.level) + " ";
+    int lead = TUI_text.width(marks);
+    List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(block.spans, width - lead);
+    List<List<MDV_model.Span>> lines = [];
+    for (int index in 0 .. wrapped.size()) {
+        List<MDV_model.Span> spans = [];
+        if (index == 0) {
+            spans.push(chrome(marks, MDV_model.heading_style(block.level)));
+        } else {
+            spans.push(chrome(spaces(lead), 0));
+        }
+        for (MDV_model.Span span in wrapped[index]) {
+            spans.push(span);
+        }
+        lines.push(spans);
+    }
+    Part part = leaf(context, lines, block.line, block.plain);
+    part.heads.push(MDV_model.Heading(block.level, block.plain, block.slug, 0, block.line));
+    return part;
+}
+
+/// Tabs to four-column stops; the rest of a code line is left alone.
+str expand_tabs(str code_line) {
+    if (!code_line.contains("\t")) {
+        return code_line;
+    }
+    List<str> out = [];
+    int column = 0;
+    for (str piece in code_line.split("\t")) {
+        out.push(piece);
+        column = column + TUI_text.width(piece);
+        out.push(spaces(4 - column % 4));
+        column = column + 4 - column % 4;
+    }
+    out.pop();
+    return out.join("");
+}
+
+Part code(Context context, MDV_model.CodeBlock block, int width) {
+    int inner = width - 2;
+    if (inner < 1) {
+        inner = 1;
+    }
+    List<List<MDV_model.Span>> lines = [];
+    List<str> plain = [];
+    int fill_style = MDV_model.BLOCK | MDV_model.DECO;
+    for (str source_line in block.lines) {
+        plain.push(source_line);
+        MDV_model.Span whole = MDV_model.Span(expand_tabs(source_line), style: MDV_model.BLOCK);
+        // `wrap` would drop spaces; code keeps every one, so cut by columns.
+        str rest = whole.text;
+        bool is_first = true;
+        while (is_first || rest.size() > 0) {
+            is_first = false;
+            str piece = TUI_text.cut(rest, inner);
+            if (piece.size() == 0 && rest.size() > 0) {
+                // A cluster wider than the line: take it whole.
+                piece = TUI_text.cut(rest, 2);
+                if (piece.size() == 0) {
+                    piece = rest;
+                }
+            }
+            rest = rest.substr(piece.size(), rest.size());
+            int pad = inner - TUI_text.width(piece);
+            List<MDV_model.Span> spans = [MDV_model.Span("  ", style: fill_style)];
+            if (piece.size() > 0) {
+                spans.push(MDV_model.Span(piece, style: MDV_model.BLOCK));
+            }
+            if (pad > 0) {
+                spans.push(MDV_model.Span(spaces(pad), style: fill_style));
+            }
+            lines.push(spans);
+        }
+    }
+    if (lines.size() == 0) {
+        lines.push([MDV_model.Span(spaces(width), style: fill_style)]);
+    }
+    return leaf(context, lines, block.line, plain.join("\n"));
+}
+
+Part rule(Context context, int line, int width) {
+    List<List<MDV_model.Span>> lines = [[chrome(DASH.repeat(width), 0)]];
+    return leaf(context, lines, line, "");
+}
+
+Part quote(Context context, List<MDV_model.Block> blocks, int width) {
+    Part inner = blocks_part(context, blocks, width - 2, true);
+    MDV_model.Span bar = chrome(BAR, 0);
+    return indent(inner, bar, bar, true);
+}
+
+str marker_of(MDV_model.ListBlock list, int index, MDV_model.ListItem item) {
+    if (item.task > 0) {
+        return "";
+    }
+    if (list.is_ordered) {
+        return str(list.start + index) + ". ";
+    }
+    return BULLET;
+}
+
+Part items(Context context, MDV_model.ListBlock list, int width) {
+    // Ordered markers are as wide as the widest one, so the text lines up.
+    int lead = 2;
+    for (int index in 0 .. list.items.size()) {
+        int marker_width = TUI_text.width(marker_of(list, index, list.items[index]));
+        if (marker_width > lead) {
+            lead = marker_width;
+        }
+    }
+    Part out = Part([], []);
+    for (int index in 0 .. list.items.size()) {
+        MDV_model.ListItem item = list.items[index];
+        if (index > 0 && !list.is_tight) {
+            out.blank();
+        }
+        Part body = blocks_part(context, item.kids, width - lead, !list.is_tight);
+        str marker = marker_of(list, index, item);
+        str shown = spaces(lead - TUI_text.width(marker)) + marker;
+        if (list.is_ordered) {
+            shown = marker + spaces(lead - TUI_text.width(marker));
+        }
+        if (body.rows.size() == 0) {
+            body.rows.push(blank_row());
+        }
+        out.append(indent(body, chrome(shown, 0), chrome(spaces(lead), 0), false));
+    }
+    return out;
+}
+
+/// Shrink `widths` until their table, borders included, fits in `width`.
+void fit_columns(List<int> widths, int width) {
+    int count = widths.size();
+    int total = count * 3 + 1;
+    for (int each in widths) {
+        total = total + each;
+    }
+    while (total > width) {
+        int widest = 0;
+        for (int index in 1 .. count) {
+            if (widths[index] > widths[widest]) {
+                widest = index;
+            }
+        }
+        if (widths[widest] <= 1) {
+            return;
+        }
+        widths[widest] = widths[widest] - 1;
+        total = total - 1;
+    }
+}
+
+List<MDV_model.Span> border(str left, str middle, str right, List<int> widths) {
+    List<str> parts = [left];
+    for (int index in 0 .. widths.size()) {
+        parts.push(DASH.repeat(widths[index] + 2));
+        if (index + 1 < widths.size()) {
+            parts.push(middle);
+        }
+    }
+    parts.push(right);
+    return [chrome(parts.join(""), 0)];
+}
+
+/// One table row of cells as terminal rows: cells wrapped to their column and
+/// padded to a common height.
+List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> widths, List<int> align) {
+    List<List<List<MDV_model.Span>>> columns = [];
+    int height = 1;
+    for (int column in 0 .. widths.size()) {
+        List<MDV_model.Span> spans = [];
+        if (column < cells.size()) {
+            spans = cells[column].spans;
+        }
+        List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(spans, widths[column]);
+        if (wrapped.size() > height) {
+            height = wrapped.size();
+        }
+        columns.push(wrapped);
+    }
+    List<List<MDV_model.Span>> out = [];
+    for (int index in 0 .. height) {
+        List<MDV_model.Span> spans = [chrome("\u{2502} ", 0)];
+        for (int column in 0 .. widths.size()) {
+            List<MDV_model.Span> cell_line = [];
+            if (index < columns[column].size()) {
+                cell_line = columns[column][index];
+            }
+            int pad = widths[column] - MDV_wrap.spans_width(cell_line);
+            int mode = 0;
+            if (column < align.size()) {
+                mode = align[column];
+            }
+            int before = 0;
+            if (mode == 3) {
+                before = pad;
+            } else if (mode == 2) {
+                before = pad / 2;
+            }
+            int after = pad - before;
+            if (before > 0) {
+                spans.push(chrome(spaces(before), 0));
+            }
+            for (MDV_model.Span span in cell_line) {
+                spans.push(span);
+            }
+            if (column + 1 < widths.size()) {
+                spans.push(chrome(spaces(after) + " \u{2502} ", 0));
+            } else {
+                spans.push(chrome(spaces(after) + " \u{2502}", 0));
+            }
+        }
+        out.push(spans);
+    }
+    return out;
+}
+
+Part table(Context context, MDV_model.Grid grid, int width) {
+    int count = grid.heads.size();
+    List<int> widths = [];
+    for (int column in 0 .. count) {
+        int natural = 1;
+        List<MDV_model.Cell> column_cells = [grid.heads[column]];
+        for (List<MDV_model.Cell> row in grid.rows) {
+            if (column < row.size()) {
+                column_cells.push(row[column]);
+            }
+        }
+        for (MDV_model.Cell cell in column_cells) {
+            for (List<MDV_model.Span> piece in MDV_wrap.wrap(cell.spans, 100000)) {
+                int cell_width = MDV_wrap.spans_width(piece);
+                if (cell_width > natural) {
+                    natural = cell_width;
+                }
+            }
+        }
+        widths.push(natural);
+    }
+    fit_columns(widths, width);
+    List<List<MDV_model.Span>> lines = [];
+    lines.push(border("\u{250c}", "\u{252c}", "\u{2510}", widths));
+    for (List<MDV_model.Span> row_line in table_row(grid.heads, widths, grid.align)) {
+        lines.push(row_line);
+    }
+    lines.push(border("\u{251c}", "\u{253c}", "\u{2524}", widths));
+    for (List<MDV_model.Cell> row in grid.rows) {
+        for (List<MDV_model.Span> row_line in table_row(row, widths, grid.align)) {
+            lines.push(row_line);
+        }
+    }
+    lines.push(border("\u{2514}", "\u{2534}", "\u{2518}", widths));
+    List<str> texts = [cells_text(grid.heads)];
+    for (List<MDV_model.Cell> row in grid.rows) {
+        texts.push(cells_text(row));
+    }
+    return leaf(context, lines, grid.line, texts.join("\n"));
+}
+
+str cells_text(List<MDV_model.Cell> cells) {
+    List<str> parts = [];
+    for (MDV_model.Cell cell in cells) {
+        parts.push(plain_of(cell.spans));
+    }
+    return parts.join(" | ");
+}
+
+/// Blocks one under another, a blank row between them when `is_spaced`.
+Part blocks_part(Context context, List<MDV_model.Block> blocks, int width, bool is_spaced) {
+    Part out = Part([], []);
+    int room = width;
+    if (room < 1) {
+        room = 1;
+    }
+    for (int index in 0 .. blocks.size()) {
+        if (index > 0 && is_spaced) {
+            out.blank();
+        }
+        match (blocks[index]) {
+            case Rule(int rule_line): {
+                out.append(rule(context, rule_line, room));
+            }
+            case Para(MDV_model.Text text): {
+                out.append(paragraph(context, text, room));
+            }
+            case Head(MDV_model.HeadingBlock head): {
+                out.append(heading(context, head, room));
+            }
+            case Code(MDV_model.CodeBlock block): {
+                out.append(code(context, block, room));
+            }
+            case Quote(List<MDV_model.Block> inner): {
+                out.append(quote(context, inner, room));
+            }
+            case Items(MDV_model.ListBlock list): {
+                out.append(items(context, list, room));
+            }
+            case Table(MDV_model.Grid grid): {
+                out.append(table(context, grid, room));
+            }
+        }
+    }
+    return out;
+}
+
+/// `doc` laid out to `width` columns.
+pub MDV_model.Layout layout(MDV_model.Document doc, int width) {
+    Context context = Context([], []);
+    Part part = blocks_part(context, doc.blocks, width, true);
+    List<MDV_model.Link> links = [];
+    for (MDV_model.Link link in doc.links) {
+        links.push(MDV_model.Link(link.href, link.title, link.label, row: -1));
+    }
+    for (int index in 0 .. part.rows.size()) {
+        for (MDV_model.Span span in part.rows[index].spans) {
+            if (span.link >= 0 && links[span.link].row < 0) {
+                MDV_model.Link link = links[span.link];
+                links[span.link] = MDV_model.Link(link.href, link.title, link.label, row: index);
+            }
+        }
+    }
+    return MDV_model.Layout(part.rows, part.heads, links, width, context.texts);
+}

@@ -1,0 +1,229 @@
+// The command line: what to show, and whether to print it or run it.
+
+import MDV_app;
+import MDV_cat;
+import MDV_layout;
+import MDV_loop;
+import MDV_prepare;
+import MDV_render;
+import MDV_theme;
+import MDV_viewer;
+import args;
+import io;
+import os;
+import term;
+import tui.TUI_app;
+import tui.TUI_style;
+
+pub const int DEFAULT_CAT_WIDTH = 80;
+
+args.Parser parser() {
+    args.Parser cli = args.Parser("tui-markdown", summary: "Read markdown in the terminal, with vim keys.");
+    cli.flag("cat", help: "print the rendering and exit (the default when standard output is not a terminal)");
+    cli.integer("width", help: "columns for --cat (default: the terminal's, or 80)", placeholder: "N");
+    cli.value("theme", help: "dark, light or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
+    cli.flag("no-watch", help: "do not reload when the file changes");
+    cli.tail("files", help: "markdown files; with none, standard input", placeholder: "FILE");
+    return cli;
+}
+
+/// Is `NO_COLOR` set to something? (no-color.org: any non-empty value.)
+bool has_no_color() {
+    match (os.env("NO_COLOR")) {
+        case Some(str value): {
+            return value.size() > 0;
+        }
+        case None: {
+            return false;
+        }
+    }
+}
+
+/// Dark unless COLORFGBG ("fg;bg", set by some terminals) says the
+/// background is a light colour.
+bool is_light_background() {
+    match (os.env("COLORFGBG")) {
+        case Some(str value): {
+            List<str> parts = value.split(";");
+            match (parts[parts.size() - 1].parse_int()) {
+                case Some(int background): {
+                    return background >= 7 && background != 8;
+                }
+                case None: {
+                    return false;
+                }
+            }
+        }
+        case None: {
+            return false;
+        }
+    }
+}
+
+MDV_theme.Theme pick_theme(args.Parsed given) {
+    match (given.value("theme")) {
+        case Some(str name): {
+            match (MDV_theme.named(name)) {
+                case Some(MDV_theme.Theme chosen): {
+                    return chosen;
+                }
+                case None: {
+                    io.eprint("tui-markdown: unknown theme " + name + " (dark, light, plain); using dark");
+                }
+            }
+        }
+        case None: {
+        }
+    }
+    if (has_no_color()) {
+        return MDV_theme.plain();
+    }
+    if (is_light_background()) {
+        return MDV_theme.light();
+    }
+    return MDV_theme.dark();
+}
+
+TUI_style.Depth pick_depth() {
+    str terminal = os.env("TERM").or("");
+    if (terminal == "linux" || terminal == "dumb" || terminal == "vt100" || terminal == "ansi") {
+        return TUI_style.Depth.Ansi16;
+    }
+    return TUI_style.Depth.Ansi256;
+}
+
+/// One source of text: its name and what it said.
+type Source {
+    str name;
+    str text;
+}
+
+Result<Source, str> load(str name) {
+    if (name == "-" || name == MDV_app.STDIN_NAME) {
+        match (MDV_app.read_stdin()) {
+            case Ok(str text): {
+                return Result<Source, str>.Ok(Source(MDV_app.STDIN_NAME, text));
+            }
+            case Err(io.Error error): {
+                return Result<Source, str>.Err("standard input: " + error.to_str());
+            }
+        }
+    }
+    match (MDV_app.read_text(name)) {
+        case Ok(str text): {
+            return Result<Source, str>.Ok(Source(name, text));
+        }
+        case Err(io.Error error): {
+            return Result<Source, str>.Err(name + ": " + error.to_str());
+        }
+    }
+}
+
+bool is_written(bytes data) {
+    io.File out = io.stdout();
+    match (out.write(data)) {
+        case Ok(int count): {
+            return true;
+        }
+        case Err(io.Error error): {
+            return false;
+        }
+    }
+}
+
+int run_cat(List<str> names, int width, MDV_theme.Theme theme, TUI_style.Depth depth) {
+    for (int index in 0 .. names.size()) {
+        match (load(names[index])) {
+            case Ok(Source source): {
+                if (index > 0) {
+                    if (!is_written("\n".to_bytes())) {
+                        return 0;
+                    }
+                }
+                if (!is_written(MDV_cat.cat(source.text, width, theme, depth))) {
+                    return 0;
+                }
+            }
+            case Err(str why): {
+                io.eprint("tui-markdown: " + why);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int run_viewer(List<str> names, List<str> files, MDV_theme.Theme theme, TUI_style.Depth depth, bool is_watching) {
+    match (load(names[0])) {
+        case Err(str why): {
+            io.eprint("tui-markdown: " + why);
+            return 1;
+        }
+        case Ok(Source source): {
+            term.Size size = TUI_app.screen_size();
+            MDV_viewer.Viewer viewer = MDV_viewer.open(files, source.name, source.text, size.cols, size.rows);
+            MDV_app.App app = MDV_app.open(viewer);
+            app.is_watching = is_watching;
+            MDV_render.Screen screen = MDV_render.Screen(viewer, theme);
+            TUI_app.Loop loop = TUI_app.Loop(depth: depth);
+            match (MDV_loop.run(loop, screen, app)) {
+                case Ok(int status): {
+                    return 0;
+                }
+                case Err(term.Error error): {
+                    io.eprint("tui-markdown: " + error.to_str());
+                    return 1;
+                }
+            }
+        }
+    }
+}
+
+/// The whole program: `argv` without the program's own name; the exit status.
+pub int run(List<str> argv) {
+    args.Parser cli = parser();
+    match (cli.parse(argv)) {
+        case Err(args.UsageError error): {
+            io.eprint("tui-markdown: " + error.to_str());
+            io.eprint(cli.usage());
+            return 2;
+        }
+        case Ok(args.Parsed given): {
+            match (given.help()) {
+                case Some(str text): {
+                    print(text);
+                    return 0;
+                }
+                case None: {
+                }
+            }
+            List<str> names = given.tail("files");
+            if (names.size() == 0) {
+                if (term.is_terminal(0)) {
+                    io.eprint("tui-markdown: no file given and standard input is a terminal");
+                    io.eprint(cli.usage());
+                    return 2;
+                }
+                names = [MDV_app.STDIN_NAME];
+            }
+            MDV_theme.Theme theme = pick_theme(given);
+            TUI_style.Depth depth = pick_depth();
+            bool is_interactive = !given.flag("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
+            if (!is_interactive) {
+                int width = given.integer("width").or(0);
+                if (width < 1) {
+                    width = DEFAULT_CAT_WIDTH;
+                    if (term.is_terminal(1)) {
+                        width = TUI_app.screen_size().cols;
+                    }
+                }
+                return run_cat(names, width, theme, depth);
+            }
+            List<str> files = [];
+            if (names[0] != MDV_app.STDIN_NAME && names[0] != "-") {
+                files = names;
+            }
+            return run_viewer(names, files, theme, depth, !given.flag("no-watch"));
+        }
+    }
+}

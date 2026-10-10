@@ -1,0 +1,216 @@
+// The viewer's own document model: what term-markdown's tree becomes once its
+// inline HTML has been turned back into styled text, and what a layout is.
+//
+// Three layers, each built from the one before:
+//
+//   term-markdown   MD_doc.Document        blocks holding RAW inline source
+//   MDV_prepare     MDV_model.Document     blocks holding styled `Span`s
+//   MDV_layout      MDV_model.Layout       `Row`s of `Span`s, for one width
+//
+// Nothing here draws. A `Span` carries a bit set of what it IS (bold, a link,
+// a bullet that is not part of the text) and the theme (`MDV_theme`) decides
+// what that looks like, so the same layout can be shown on a light terminal, a
+// dark one, or printed with no colour at all.
+
+// --- what a span is -------------------------------------------------------------
+
+/// Strong emphasis.
+pub const int BOLD = 1;
+/// Emphasis.
+pub const int ITALIC = 2;
+/// An inline code span.
+pub const int CODE = 4;
+/// Part of a link; `Span.link` says which.
+pub const int LINK = 8;
+/// Chrome, not document text: a bullet, a quote bar, a table border, a rule.
+/// The visible-text oracle compares everything that is NOT this.
+pub const int DECO = 16;
+/// An image placeholder (`[image: alt]`). Its alt text is not visible text in
+/// the HTML either, so it is DECO as well.
+pub const int IMAGE = 32;
+/// The text of a fenced or indented code block.
+pub const int BLOCK = 64;
+/// Struck through (`~~x~~`).
+pub const int STRIKE = 128;
+/// A hard line break between two spans. Never reaches a `Row`.
+pub const int BREAK = 256;
+/// A heading's text; the level is in bits 12..14, see `heading_style`.
+pub const int HEADING = 512;
+/// A table's header cell.
+pub const int HEAD_CELL = 1024;
+/// A task-list checkbox, `[ ]` or `[x]`, drawn as chrome.
+pub const int TASK = 2048;
+const int LEVEL_SHIFT = 12;
+const int LEVEL_MASK = 7;
+
+/// The style bits of a heading's text at `level` (1..6).
+pub int heading_style(int level) {
+    return HEADING | BOLD | level * 4096;
+}
+
+/// The heading level in `style`, 0 when it is not a heading's.
+pub int level_of(int style) {
+    if ((style & HEADING) == 0) {
+        return 0;
+    }
+    return (style / 4096) & LEVEL_MASK;
+}
+
+/// A run of text, all of one style.
+pub type Span {
+    pub str text;
+    pub int style = 0;
+    /// Index into `Layout.links` (or `Document.links`), -1 for none.
+    pub int link = -1;
+}
+
+/// Is every bit of `bits` set in this span's style?
+pub bool Span.has_bits(int bits) {
+    return (style & bits) == bits;
+}
+
+/// A link target found in the document, in the order it appears.
+pub type Link {
+    pub str href;
+    pub str title;
+    /// The link text with its markup removed.
+    pub str label;
+    /// The first row the link is on; 0 until laid out.
+    pub int row = 0;
+}
+
+// --- blocks, after the inline pass ----------------------------------------------
+
+/// Inline content and the source line its block starts on.
+pub type Text {
+    pub List<Span> spans;
+    pub int line = 0;
+}
+
+pub type HeadingBlock {
+    pub int level;
+    pub List<Span> spans;
+    /// The heading's text with its markup removed.
+    pub str plain;
+    /// GitHub-style anchor: `Hello, World!` is `hello-world`; repeated
+    /// headings get `-1`, `-2` appended.
+    pub str slug;
+    pub int line = 0;
+}
+
+pub type CodeBlock {
+    pub str info;
+    pub List<str> lines;
+    pub int line = 0;
+}
+
+pub type ListItem {
+    pub List<Block> kids;
+    /// 0 an ordinary item, 1 an unchecked task, 2 a checked one.
+    pub int task = 0;
+}
+
+pub type ListBlock {
+    pub bool is_ordered;
+    pub int start;
+    pub bool is_tight;
+    pub List<ListItem> items;
+}
+
+pub type Cell {
+    pub List<Span> spans;
+}
+
+pub type Grid {
+    pub List<int> align;
+    pub List<Cell> heads;
+    pub List<List<Cell>> rows;
+    pub int line = 0;
+}
+
+pub enum Block {
+    Rule(int);
+    Para(Text);
+    Head(HeadingBlock);
+    Code(CodeBlock);
+    Quote(List<Block>);
+    Items(ListBlock);
+    Table(Grid);
+}
+
+/// A document ready to be laid out at any width.
+pub type Document {
+    pub List<Block> blocks;
+    pub List<Link> links;
+    /// Source line count, for the status line.
+    pub int line_count = 0;
+}
+
+// --- a laid-out document ------------------------------------------------------------
+
+/// One heading, for the outline and `]]` / `[[`.
+pub type Heading {
+    pub int level;
+    pub str text;
+    pub str slug;
+    pub int row;
+    pub int line;
+}
+
+/// One terminal row of the document.
+pub type Row {
+    pub List<Span> spans;
+    /// The source line of the block this row belongs to (1-based); 0 when
+    /// the row is chrome between blocks.
+    pub int line = 0;
+    /// Which leaf block, in document order; -1 for a row between blocks.
+    pub int block = -1;
+}
+
+/// The row's text, chrome included.
+pub str Row.plain() {
+    List<str> parts = [];
+    for (Span span in spans) {
+        parts.push(span.text);
+    }
+    return parts.join("");
+}
+
+/// The row's document text only: spans that are not DECO.
+pub str Row.content() {
+    List<str> parts = [];
+    for (Span span in spans) {
+        if ((span.style & DECO) == 0) {
+            parts.push(span.text);
+        }
+    }
+    return parts.join("");
+}
+
+/// A document laid out for one width.
+pub type Layout {
+    pub List<Row> rows;
+    pub List<Heading> headings;
+    pub List<Link> links;
+    pub int width;
+    /// The plain text of every leaf block, by `Row.block`, for yanking.
+    pub List<str> blocks;
+}
+
+/// The first row of the block that starts at source line `line`, or of the
+/// nearest block starting before it; 0 when no row is mapped to a line.
+pub int Layout.row_of_line(int line) {
+    int best_line = 0;
+    int best_row = 0;
+    for (int index in 0 .. rows.size()) {
+        int row_line = rows[index].line;
+        if (row_line == 0 || row_line > line) {
+            continue;
+        }
+        if (row_line > best_line) {
+            best_line = row_line;
+            best_row = index;
+        }
+    }
+    return best_row;
+}

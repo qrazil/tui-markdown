@@ -1,3 +1,18 @@
-import io;
+// tui-markdown -- a terminal markdown viewer with vim keys.
+//
+//   tui-markdown README.md          read it
+//   tui-markdown a.md b.md          several; > and < move between them
+//   cat notes.md | tui-markdown     from standard input
+//   tui-markdown --cat README.md    print the rendering (what a pipe gets)
+//
+// See README.md for the keys and docs/design.md for how it is built.
 
-io.eprint("tui-markdown: not yet");
+import MDV_cli;
+import os;
+
+List<str> argv = os.args();
+List<str> rest = [];
+for (int index in 1 .. argv.size()) {
+    rest.push(argv[index]);
+}
+os.exit(MDV_cli.run(rest));

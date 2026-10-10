@@ -1,0 +1,319 @@
+// Inline HTML back to styled spans.
+//
+// term-markdown's inline pass (`MD_inlines.render`) answers HTML and nothing
+// else: there is no inline tree to import. Its output is a small, closed
+// language -- text with `&amp; &lt; &gt; &quot; &#x27;` escapes, and the tags
+// `em`, `strong`, `code`, `a`, `img` and `br` -- because every literal `<` in
+// the source is escaped on the way out. Reading that back is a few dozen
+// lines and keeps the visible text exactly what the HTML says, which is what
+// the oracle test compares against.
+//
+// The upstream change that would make this module unnecessary is an inline
+// AST (docs/design.md, "What term-markdown would need").
+
+import MDV_model;
+
+/// The text of one `&...;` reference starting at `start` (which holds the
+/// `&`), and the offset just past it; the reference itself when it is not one
+/// of the five escapes or a numeric character reference.
+type Entity {
+    str text;
+    int after;
+}
+
+Entity read_entity(str source, int start) {
+    int length = source.size();
+    int end = start + 1;
+    // Longest reference this module decodes is `&#x10FFFF;` -- ten bytes.
+    while (end < length && end < start + 12 && source.byte_at(end) != ';' && source.byte_at(end) != '&' && source.byte_at(end) != ' ') {
+        end = end + 1;
+    }
+    if (end >= length || source.byte_at(end) != ';') {
+        return Entity("&", start + 1);
+    }
+    str name = source.substr(start + 1, end);
+    int after = end + 1;
+    if (name == "amp") {
+        return Entity("&", after);
+    }
+    if (name == "lt") {
+        return Entity("<", after);
+    }
+    if (name == "gt") {
+        return Entity(">", after);
+    }
+    if (name == "quot") {
+        return Entity("\"", after);
+    }
+    if (name == "apos") {
+        return Entity("'", after);
+    }
+    if (name.starts_with("#x") || name.starts_with("#X")) {
+        int value = parse_hex(name.substr(2, name.size()));
+        if (is_scalar(value)) {
+            return Entity(str.from_chars([value]), after);
+        }
+        return Entity("&", start + 1);
+    }
+    if (name.starts_with("#")) {
+        match (name.substr(1, name.size()).parse_int()) {
+            case Some(int value): {
+                if (is_scalar(value)) {
+                    return Entity(str.from_chars([value]), after);
+                }
+            }
+            case None: {
+            }
+        }
+    }
+    return Entity("&", start + 1);
+}
+
+bool is_scalar(int value) {
+    if (value <= 0 || value > 0x10FFFF) {
+        return false;
+    }
+    return value < 0xD800 || value > 0xDFFF;
+}
+
+int parse_hex(str digits) {
+    if (digits.size() == 0 || digits.size() > 6) {
+        return -1;
+    }
+    int value = 0;
+    for (int digit in digits.chars()) {
+        int part = -1;
+        if (digit >= '0' && digit <= '9') {
+            part = digit - '0';
+        } else if (digit >= 'a' && digit <= 'f') {
+            part = digit - 'a' + 10;
+        } else if (digit >= 'A' && digit <= 'F') {
+            part = digit - 'A' + 10;
+        }
+        if (part < 0) {
+            return -1;
+        }
+        value = value * 16 + part;
+    }
+    return value;
+}
+
+/// `source` with the HTML character references it holds decoded.
+pub str decode(str source) {
+    if (!source.contains("&")) {
+        return source;
+    }
+    List<str> out = [];
+    int length = source.size();
+    int from = 0;
+    int index = 0;
+    while (index < length) {
+        if (source.byte_at(index) == '&') {
+            Entity entity = read_entity(source, index);
+            out.push(source.substr(from, index));
+            out.push(entity.text);
+            index = entity.after;
+            from = index;
+            continue;
+        }
+        index = index + 1;
+    }
+    out.push(source.substr(from, length));
+    return out.join("");
+}
+
+/// One tag: its name (lower case, no slash) and its attributes.
+type Tag {
+    str name;
+    bool is_closing;
+    Map<str, str> attributes;
+}
+
+Tag read_tag(str body) {
+    Map<str, str> attributes = {};
+    int length = body.size();
+    int index = 0;
+    bool is_closing = false;
+    if (index < length && body.byte_at(index) == '/') {
+        is_closing = true;
+        index = index + 1;
+    }
+    int name_start = index;
+    while (index < length && body.byte_at(index) != ' ' && body.byte_at(index) != '/') {
+        index = index + 1;
+    }
+    str name = body.substr(name_start, index).to_lower();
+    while (index < length) {
+        while (index < length && (body.byte_at(index) == ' ' || body.byte_at(index) == '/')) {
+            index = index + 1;
+        }
+        int key_start = index;
+        while (index < length && body.byte_at(index) != '=' && body.byte_at(index) != ' ') {
+            index = index + 1;
+        }
+        str key = body.substr(key_start, index);
+        if (index < length && body.byte_at(index) == '=' && index + 1 < length && body.byte_at(index + 1) == '"') {
+            int value_start = index + 2;
+            int value_end = value_start;
+            while (value_end < length && body.byte_at(value_end) != '"') {
+                value_end = value_end + 1;
+            }
+            attributes.set(key, decode(body.substr(value_start, value_end)));
+            index = value_end + 1;
+        }
+    }
+    return Tag(name, is_closing, attributes);
+}
+
+/// The running state while the HTML is read.
+type Reader {
+    List<MDV_model.Span> spans;
+    List<MDV_model.Link> links;
+    int base_style;
+    int bold_depth = 0;
+    int italic_depth = 0;
+    int code_depth = 0;
+    int link = -1;
+    /// While inside an `<a>`: the index of its `Link`, whose label grows.
+    int open_label = -1;
+    bool is_skipping_newline = false;
+}
+
+int Reader.style() {
+    int bits = base_style;
+    if (bold_depth > 0) {
+        bits = bits | MDV_model.BOLD;
+    }
+    if (italic_depth > 0) {
+        bits = bits | MDV_model.ITALIC;
+    }
+    if (code_depth > 0) {
+        bits = bits | MDV_model.CODE;
+    }
+    if (link >= 0) {
+        bits = bits | MDV_model.LINK;
+    }
+    return bits;
+}
+
+void Reader.add_text(str text) {
+    if (text.size() == 0) {
+        return;
+    }
+    if (open_label >= 0) {
+        MDV_model.Link target = links[open_label];
+        links[open_label] = MDV_model.Link(target.href, target.title, target.label + text);
+    }
+    spans.push(MDV_model.Span(text, style: style(), link: link));
+}
+
+void Reader.handle(Tag tag) {
+    if (tag.name == "em") {
+        if (tag.is_closing) {
+            italic_depth = italic_depth - 1;
+        } else {
+            italic_depth = italic_depth + 1;
+        }
+    } else if (tag.name == "strong") {
+        if (tag.is_closing) {
+            bold_depth = bold_depth - 1;
+        } else {
+            bold_depth = bold_depth + 1;
+        }
+    } else if (tag.name == "code") {
+        if (tag.is_closing) {
+            code_depth = code_depth - 1;
+        } else {
+            code_depth = code_depth + 1;
+        }
+    } else if (tag.name == "a") {
+        if (tag.is_closing) {
+            link = -1;
+            open_label = -1;
+        } else {
+            links.push(MDV_model.Link(tag.attributes.get("href").or(""), tag.attributes.get("title").or(""), ""));
+            link = links.size() - 1;
+            open_label = link;
+        }
+    } else if (tag.name == "br") {
+        spans.push(MDV_model.Span("\n", style: MDV_model.BREAK));
+        is_skipping_newline = true;
+    } else if (tag.name == "img") {
+        add_image(tag);
+    }
+}
+
+void Reader.add_image(Tag tag) {
+    str alt = tag.attributes.get("alt").or("");
+    str label = "[image]";
+    if (alt.size() > 0) {
+        label = "[image: " + alt + "]";
+    }
+    int target = link;
+    if (target < 0) {
+        links.push(MDV_model.Link(tag.attributes.get("src").or(""), tag.attributes.get("title").or(""), alt));
+        target = links.size() - 1;
+    } else if (open_label >= 0) {
+        MDV_model.Link outer = links[open_label];
+        links[open_label] = MDV_model.Link(outer.href, outer.title, outer.label + alt);
+    }
+    spans.push(MDV_model.Span(label, style: base_style | MDV_model.DECO | MDV_model.IMAGE | MDV_model.LINK, link: target));
+}
+
+/// The styled spans of `html`, an inline fragment as `MD_inlines.render`
+/// writes it. Links found are appended to `links` and the spans name them by
+/// index. `base_style` is OR-ed into every span (a heading's, a header cell's).
+/// Soft line breaks become a space; a hard break is a span of style `BREAK`.
+pub List<MDV_model.Span> parse(str html, List<MDV_model.Link> links, int base_style) {
+    Reader reader = Reader([], links, base_style);
+    int length = html.size();
+    int from = 0;
+    int index = 0;
+    while (index < length) {
+        int byte_value = html.byte_at(index);
+        if (byte_value == '<') {
+            int tag_end = index + 1;
+            while (tag_end < length && html.byte_at(tag_end) != '>') {
+                tag_end = tag_end + 1;
+            }
+            flush(reader, html.substr(from, index));
+            if (tag_end < length) {
+                reader.handle(read_tag(html.substr(index + 1, tag_end)));
+            }
+            index = tag_end + 1;
+            from = index;
+            if (reader.is_skipping_newline && from < length && html.byte_at(from) == '\n') {
+                from = from + 1;
+                index = from;
+            }
+            reader.is_skipping_newline = false;
+            continue;
+        }
+        index = index + 1;
+    }
+    if (from < length) {
+        flush(reader, html.substr(from, length));
+    }
+    return reader.spans;
+}
+
+void flush(Reader reader, str raw) {
+    if (raw.size() == 0) {
+        return;
+    }
+    str text = decode(raw).split("\n").join(" ");
+    reader.add_text(text);
+}
+
+/// The text of `spans` with the markup gone and breaks as spaces.
+pub str plain(List<MDV_model.Span> spans) {
+    List<str> parts = [];
+    for (MDV_model.Span span in spans) {
+        if (span.has_bits(MDV_model.BREAK)) {
+            parts.push(" ");
+        } else if (!span.has_bits(MDV_model.IMAGE)) {
+            parts.push(span.text);
+        }
+    }
+    return parts.join("");
+}

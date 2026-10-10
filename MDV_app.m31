@@ -1,0 +1,181 @@
+// The program around a `Viewer`: the files it reads, the clipboard it writes
+// to, and the clock that notices a file changing.
+//
+// `Viewer` decides and says what it wants as `Request`s; this carries them
+// out. Reading a file is `read_text`; copying is an OSC 52 sequence queued in
+// `outbox` for the loop to write; auto-reload is a `stat` on every idle tick,
+// comparing size and modification time with the last look.
+
+import MDV_viewer;
+import base64;
+import fs;
+import io;
+import term;
+import tui.TUI_app;
+
+/// The name shown for text that came from standard input.
+pub const str STDIN_NAME = "<stdin>";
+/// Longest text put in one OSC 52 sequence. Terminals cap the payload (xterm
+/// at 100000 bytes of base64); this stays under that.
+pub const int MAX_COPY = 60000;
+
+/// The text of `path`. Bytes that are not UTF-8 are read as Latin-1, so a
+/// file in an old encoding still shows rather than failing.
+pub Result<str, io.Error> read_text(str path) {
+    bytes raw = io.read_bytes(path)?;
+    return Result<str, io.Error>.Ok(text_of(raw));
+}
+
+/// `raw` as text: UTF-8 when it is, Latin-1 when it is not.
+pub str text_of(bytes raw) {
+    match (raw.utf8()) {
+        case Some(str text): {
+            return text;
+        }
+        case None: {
+            List<int> chars = [];
+            for (int value in raw) {
+                chars.push(value);
+            }
+            return str.from_chars(chars);
+        }
+    }
+}
+
+/// All of standard input.
+pub Result<str, io.Error> read_stdin() {
+    io.File input = io.stdin();
+    bytes raw = input.read_all()?;
+    return Result<str, io.Error>.Ok(text_of(raw));
+}
+
+/// OSC 52: ask the terminal to put `text` on the system clipboard.
+pub bytes copy_sequence(str text) {
+    str shown = text;
+    if (shown.size() > MAX_COPY) {
+        List<int> chars = shown.chars();
+        List<int> kept = [];
+        int used = 0;
+        for (int each in chars) {
+            int width = str.from_chars([each]).size();
+            if (used + width > MAX_COPY) {
+                break;
+            }
+            used = used + width;
+            kept.push(each);
+        }
+        shown = str.from_chars(kept);
+    }
+    str out = "\x1b]52;c;" + base64.encode(shown.to_bytes()) + "\x07";
+    return out.to_bytes();
+}
+
+/// What `stat` says about `path` as one comparable string, "" when it cannot.
+pub str stamp_of(str path) {
+    match (fs.stat(path)) {
+        case Ok(fs.Stat info): {
+            return str(info.size) + ":" + str(info.mtime_ns);
+        }
+        case Err(io.Error error): {
+            return "";
+        }
+    }
+}
+
+pub type App {
+    pub MDV_viewer.Viewer viewer;
+    pub bytes outbox = [];
+    /// `stamp_of` the file as last read.
+    pub str stamp = "";
+    /// Should a change on disk reload the file?
+    pub bool is_watching = true;
+}
+
+void App.reload() {
+    if (viewer.name == STDIN_NAME) {
+        viewer.message = "standard input cannot be reloaded";
+        return;
+    }
+    match (read_text(viewer.name)) {
+        case Ok(str text): {
+            stamp = stamp_of(viewer.name);
+            viewer.refresh(text);
+        }
+        case Err(io.Error error): {
+            viewer.message = viewer.name + ": " + error.to_str();
+        }
+    }
+}
+
+void App.open_file(str path) {
+    match (read_text(path)) {
+        case Ok(str text): {
+            stamp = stamp_of(path);
+            viewer.opened(path, text);
+        }
+        case Err(io.Error error): {
+            viewer.load_failed(path + ": " + error.to_str());
+        }
+    }
+}
+
+/// Do what the viewer asked for since the last key.
+pub void App.serve() {
+    for (MDV_viewer.Request request in viewer.drain()) {
+        match (request) {
+            case Reload: {
+                reload();
+            }
+            case Open(str path): {
+                open_file(path);
+            }
+            case Copy(str text): {
+                outbox.extend(copy_sequence(text));
+            }
+        }
+    }
+}
+
+pub TUI_app.Action App.handle(term.Event event) {
+    match (event) {
+        case Key(term.Key pressed): {
+            TUI_app.Action action = viewer.key(pressed);
+            serve();
+            return action;
+        }
+        case Mouse(term.Mouse mouse): {
+            return TUI_app.Action.Continue;
+        }
+        case Paste(str text): {
+            return TUI_app.Action.Continue;
+        }
+        case Unknown(bytes raw): {
+            return TUI_app.Action.Continue;
+        }
+    }
+}
+
+/// Idle: has the file changed on disk?
+pub bool App.needs_redraw() {
+    if (!is_watching || viewer.name == STDIN_NAME) {
+        return false;
+    }
+    str now = stamp_of(viewer.name);
+    if (now.size() == 0 || now == stamp) {
+        return false;
+    }
+    reload();
+    return true;
+}
+
+pub bytes App.take_output() {
+    bytes out = outbox;
+    outbox = [];
+    return out;
+}
+
+pub App open(MDV_viewer.Viewer viewer) {
+    App app = App(viewer);
+    app.stamp = stamp_of(viewer.name);
+    return app;
+}

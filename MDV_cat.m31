@@ -1,0 +1,36 @@
+// `--cat`: the layout as ANSI text, for a pipe or a pager.
+//
+// The same rows the viewer shows, written once: every row's spans styled by
+// the theme, the pen changed only when the style changes, and a reset at the
+// end of each styled row. With the plain theme (NO_COLOR) there is not one
+// escape in the output.
+
+import MDV_layout;
+import MDV_model;
+import MDV_prepare;
+import MDV_theme;
+import tui.TUI_style;
+
+/// `layout` as bytes in the terminal's language at colour depth `depth`.
+pub bytes render(MDV_model.Layout layout, MDV_theme.Theme theme, TUI_style.Depth depth) {
+    bytes out = [];
+    for (MDV_model.Row row in layout.rows) {
+        int pen = TUI_style.RESET_STYLE;
+        for (MDV_model.Span span in row.spans) {
+            int target = MDV_theme.style_for(theme, span.style).pack();
+            TUI_style.sgr(out, pen, target, depth);
+            pen = target;
+            out.extend(span.text.to_bytes());
+        }
+        if (pen != TUI_style.RESET_STYLE) {
+            TUI_style.push_reset(out);
+        }
+        out.push('\n');
+    }
+    return out;
+}
+
+/// The markdown in `source` as ANSI text at `width` columns.
+pub bytes cat(str source, int width, MDV_theme.Theme theme, TUI_style.Depth depth) {
+    return render(MDV_layout.layout(MDV_prepare.prepare(source), width), theme, depth);
+}

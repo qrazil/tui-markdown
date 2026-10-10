@@ -1,0 +1,1005 @@
+// The viewer's state machine.
+//
+// Everything the program decides, with no terminal in sight: a `Viewer` holds
+// the document, its layout at the current width, where the window is, what is
+// being searched for, which link is focused, the back stack and the open
+// popup. `key` takes one key and answers whether to redraw or quit. What the
+// outside world must do (copy to the clipboard, read a file again, open
+// another one) is not done here but left as a `Request` for the loop to
+// carry out -- which is what makes the whole key set testable by typing
+// names into a struct (tests/t_viewer.m31) rather than through a pty.
+//
+// Rows are counted from 0; a window shows rows `top .. top + height()`; the
+// last terminal row is the status line, so `height()` is `rows - 1`.
+
+import MDV_keys;
+import MDV_layout;
+import MDV_model;
+import MDV_prepare;
+import term;
+import tui.TUI_app;
+import tui.TUI_outline;
+
+/// Something the viewer wants done that it cannot do itself.
+pub enum Request {
+    /// Read the current file again and call `refresh`.
+    Reload;
+    /// Read this path and call `opened` (or `load_failed`).
+    Open(str);
+    /// Put this text on the system clipboard (OSC 52).
+    Copy(str);
+}
+
+/// What the keys mean at the moment.
+pub enum Mode {
+    Normal;
+    /// Typing a search after `/`.
+    Search;
+    /// The outline popup.
+    Outline;
+    /// The key help popup.
+    Help;
+}
+
+/// A place to come back to: which file, which block, how far into it.
+pub type Place {
+    pub str name;
+    pub int block;
+    pub int offset;
+    pub int link;
+}
+
+/// One search hit: a row, and a byte range of that row's `Row.content()`.
+pub type Hit {
+    pub int row;
+    pub int start;
+    pub int end;
+}
+
+pub const int MAX_TEXT_WIDTH = 100;
+pub const int MIN_TEXT_WIDTH = 8;
+/// Columns left empty on each side of the text.
+pub const int MARGIN = 1;
+
+pub type Viewer {
+    /// The files given on the command line, in order; empty for standard input.
+    pub List<str> files;
+    /// The path being shown ("<stdin>" when there is none).
+    pub str name;
+    pub str source;
+    pub MDV_model.Document doc;
+    pub MDV_model.Layout layout;
+    pub int columns;
+    pub int rows;
+    /// First row shown.
+    pub int top = 0;
+    /// The number typed before a command, 0 for none.
+    pub int count = 0;
+    /// The first key of a two-key command (`g`, `]`, `[`), "" for none.
+    pub str pending = "";
+    pub Mode mode = Mode.Normal;
+    /// What is being typed after `/`.
+    pub str query = "";
+    /// The last search that was run; its hits are marked.
+    pub str needle = "";
+    pub List<Hit> hits = [];
+    /// Which of `hits` is current, -1 for none.
+    pub int hit = -1;
+    /// Which link is focused (an index into `layout.links`), -1 for none.
+    pub int link = -1;
+    pub List<Place> back = [];
+    /// One line for the status bar, until the next key.
+    pub str message = "";
+    pub TUI_outline.Outline outline = TUI_outline.Outline([]);
+    pub int help_top = 0;
+    pub List<Request> requests = [];
+    /// After an `Open` completes: the heading to jump to, "" for none.
+    pub str pending_anchor = "";
+    /// After an `Open` completes: the place to restore, if it is a way back.
+    pub List<Place> pending_place = [];
+    /// Was a place pushed for the `Open` that is under way?
+    pub bool did_push = false;
+}
+
+/// Rows of text on screen: all but the status line.
+pub int Viewer.height() {
+    if (rows < 2) {
+        return 1;
+    }
+    return rows - 1;
+}
+
+pub int Viewer.total() {
+    return layout.rows.size();
+}
+
+pub int Viewer.max_top() {
+    int most = total() - height();
+    if (most < 0) {
+        return 0;
+    }
+    return most;
+}
+
+/// Where the text starts on screen, so it is centred when the screen is wider
+/// than the longest line.
+pub int Viewer.left() {
+    int spare = columns - layout.width;
+    if (spare < 2 * MARGIN) {
+        return MARGIN;
+    }
+    return spare / 2;
+}
+
+void Viewer.scroll_to(int target) {
+    int limit = max_top();
+    if (target > limit) {
+        top = limit;
+    } else if (target < 0) {
+        top = 0;
+    } else {
+        top = target;
+    }
+}
+
+/// How far through the document the window is, 0..100.
+pub int Viewer.percent() {
+    if (max_top() == 0) {
+        return 100;
+    }
+    return top * 100 / max_top();
+}
+
+/// Is `row` on screen?
+pub bool Viewer.is_visible(int row) {
+    return row >= top && row < top + height();
+}
+
+/// Bring `row` into view, leaving it a third of the way down when it has to
+/// scroll.
+void Viewer.reveal(int row) {
+    if (is_visible(row)) {
+        return;
+    }
+    scroll_to(row - height() / 3);
+}
+
+Anchor Viewer.anchor_here() {
+    for (int index in top .. layout.rows.size()) {
+        int block = layout.rows[index].block;
+        if (block >= 0) {
+            int first = index;
+            while (first > 0 && layout.rows[first - 1].block == block) {
+                first = first - 1;
+            }
+            return Anchor(block, top - first);
+        }
+    }
+    return Anchor(-1, 0);
+}
+
+int Viewer.row_of_anchor(Anchor anchor) {
+    if (anchor.block < 0) {
+        return 0;
+    }
+    for (int index in 0 .. layout.rows.size()) {
+        if (layout.rows[index].block == anchor.block) {
+            return index + anchor.offset;
+        }
+    }
+    return 0;
+}
+
+Place Viewer.place_here() {
+    Anchor anchor = anchor_here();
+    return Place(name, anchor.block, anchor.offset, link);
+}
+
+void Viewer.go_to_place(Place place) {
+    scroll_to(row_of_anchor(Anchor(place.block, place.offset)));
+    if (place.link < layout.links.size()) {
+        link = place.link;
+    } else {
+        link = -1;
+    }
+}
+
+/// The source line the first mapped row at or below the window starts.
+int Viewer.line_here() {
+    for (int index in top .. layout.rows.size()) {
+        if (layout.rows[index].line > 0) {
+            return layout.rows[index].line;
+        }
+    }
+    return 0;
+}
+
+/// Lay the document out again for the current width, keeping the place.
+void Viewer.relayout() {
+    Anchor anchor = anchor_here();
+    layout = MDV_layout.layout(doc, text_width_for(columns));
+    scroll_to(row_of_anchor(anchor));
+    if (link >= layout.links.size()) {
+        link = -1;
+    }
+    find_hits();
+}
+
+/// The terminal changed size.
+pub void Viewer.resize(int new_columns, int new_rows) {
+    columns = new_columns;
+    rows = new_rows;
+    if (text_width_for(new_columns) != layout.width) {
+        relayout();
+    } else {
+        scroll_to(top);
+    }
+}
+
+/// Show another document from the top (or at the anchor or place a followed
+/// link asked for).
+pub void Viewer.load(str path, str text) {
+    name = path;
+    source = text;
+    doc = MDV_prepare.prepare(text);
+    layout = MDV_layout.layout(doc, text_width_for(columns));
+    top = 0;
+    link = -1;
+    mode = Mode.Normal;
+    pending = "";
+    count = 0;
+    find_hits();
+    if (pending_place.size() > 0) {
+        go_to_place(pending_place[0]);
+    } else if (pending_anchor.size() > 0) {
+        jump_to_anchor(pending_anchor);
+    }
+    pending_place = [];
+    pending_anchor = "";
+    did_push = false;
+}
+
+/// An `Open` request was answered with the file.
+pub void Viewer.opened(str path, str text) {
+    load(path, text);
+}
+
+/// An `Open` request failed: say why, and forget the place pushed for it.
+pub void Viewer.load_failed(str why) {
+    message = why;
+    if (did_push && back.size() > 0) {
+        back.pop();
+    }
+    did_push = false;
+    pending_place = [];
+    pending_anchor = "";
+}
+
+/// The current file changed on disk: show the new text, keeping the place.
+pub void Viewer.refresh(str text) {
+    int line = line_here();
+    int old_link = link;
+    source = text;
+    doc = MDV_prepare.prepare(text);
+    layout = MDV_layout.layout(doc, text_width_for(columns));
+    scroll_to(layout.row_of_line(line));
+    if (old_link < layout.links.size()) {
+        link = old_link;
+    } else {
+        link = -1;
+    }
+    find_hits();
+    message = "reloaded";
+}
+
+/// Take the requests made since the last call.
+pub List<Request> Viewer.drain() {
+    List<Request> out = requests;
+    requests = [];
+    return out;
+}
+
+/// All hits of `needle` in the layout. A needle with no capital letter ignores
+/// case (smart case).
+void Viewer.find_hits() {
+    hits = [];
+    hit = -1;
+    if (needle.size() == 0) {
+        return;
+    }
+    bool is_exact = has_upper(needle);
+    str wanted = needle;
+    if (!is_exact) {
+        wanted = needle.to_lower();
+    }
+    for (int index in 0 .. layout.rows.size()) {
+        str content = layout.rows[index].content();
+        if (content.size() < wanted.size()) {
+            continue;
+        }
+        if (!is_exact) {
+            str lowered = content.to_lower();
+            // A letter whose lower case is longer or shorter would put a hit
+            // at the wrong byte; such a row is not searched.
+            if (lowered.size() != content.size()) {
+                continue;
+            }
+            content = lowered;
+        }
+        int from = 0;
+        bool is_scanning = true;
+        while (is_scanning) {
+            match (content.substr(from, content.size()).index_of(wanted)) {
+                case Some(int offset): {
+                    hits.push(Hit(index, from + offset, from + offset + wanted.size()));
+                    from = from + offset + wanted.size();
+                }
+                case None: {
+                    is_scanning = false;
+                }
+            }
+        }
+    }
+}
+
+/// Make hit `target` (wrapping) the current one and show it.
+void Viewer.go_to_hit(int target) {
+    if (hits.size() == 0) {
+        return;
+    }
+    int wrapped = target;
+    if (target >= hits.size()) {
+        wrapped = 0;
+        message = "search hit BOTTOM, continuing at TOP";
+    } else if (target < 0) {
+        wrapped = hits.size() - 1;
+        message = "search hit TOP, continuing at BOTTOM";
+    }
+    hit = wrapped;
+    reveal(hits[hit].row);
+}
+
+/// The first hit on or below the window's first row.
+int Viewer.first_hit_from_top() {
+    for (int index in 0 .. hits.size()) {
+        if (hits[index].row >= top) {
+            return index;
+        }
+    }
+    return 0;
+}
+
+void Viewer.commit_search() {
+    mode = Mode.Normal;
+    if (query.size() > 0) {
+        needle = query;
+    }
+    query = "";
+    find_hits();
+    if (needle.size() == 0) {
+        return;
+    }
+    if (hits.size() == 0) {
+        message = "pattern not found: " + needle;
+        return;
+    }
+    go_to_hit(first_hit_from_top());
+    message = str(hits.size()) + " match(es) for " + needle;
+}
+
+/// The hits whose rows are in `first .. stop`, for drawing.
+pub List<Hit> Viewer.hits_between(int first, int stop) {
+    List<Hit> out = [];
+    for (Hit each in hits) {
+        if (each.row >= first && each.row < stop) {
+            out.push(each);
+        }
+    }
+    return out;
+}
+
+void Viewer.focus_link(int target) {
+    link = target;
+    reveal(layout.links[target].row);
+    message = layout.links[target].href;
+}
+
+void Viewer.next_link(int step) {
+    int count_links = layout.links.size();
+    if (count_links == 0) {
+        message = "no links";
+        return;
+    }
+    if (link < 0) {
+        if (step > 0) {
+            for (int index in 0 .. count_links) {
+                if (layout.links[index].row >= top) {
+                    focus_link(index);
+                    return;
+                }
+            }
+            focus_link(0);
+            return;
+        }
+        int bottom = top + height();
+        for (int index in 0 .. count_links) {
+            int back_index = count_links - 1 - index;
+            if (layout.links[back_index].row < bottom) {
+                focus_link(back_index);
+                return;
+            }
+        }
+        focus_link(count_links - 1);
+        return;
+    }
+    int target = link + step;
+    if (target >= count_links) {
+        target = 0;
+    } else if (target < 0) {
+        target = count_links - 1;
+    }
+    focus_link(target);
+}
+
+void Viewer.jump_to_anchor(str slug) {
+    for (MDV_model.Heading heading in layout.headings) {
+        if (heading.slug == slug) {
+            scroll_to(heading.row);
+            return;
+        }
+    }
+    message = "no heading #" + slug;
+}
+
+void Viewer.push_here() {
+    back.push(place_here());
+    did_push = true;
+}
+
+/// Follow `href`: an anchor scrolls, a markdown file is opened, anything else
+/// is copied.
+void Viewer.follow(str href) {
+    if (href.size() == 0) {
+        message = "link has no target";
+        return;
+    }
+    if (href.starts_with("#")) {
+        Place here = place_here();
+        str slug = href.substr(1, href.size());
+        bool did_find = false;
+        for (MDV_model.Heading heading in layout.headings) {
+            if (heading.slug == slug) {
+                did_find = true;
+            }
+        }
+        if (!did_find) {
+            message = "no heading " + href;
+            return;
+        }
+        back.push(here);
+        jump_to_anchor(slug);
+        return;
+    }
+    if (is_external(href)) {
+        requests.push(Request.Copy(href));
+        message = "copied " + href;
+        return;
+    }
+    str path = href;
+    str fragment = "";
+    match (href.index_of("#")) {
+        case Some(int slot): {
+            path = href.substr(0, slot);
+            fragment = href.substr(slot + 1, href.size());
+        }
+        case None: {
+        }
+    }
+    str target = resolve(name, path);
+    if (path.size() == 0 || target == name) {
+        follow("#" + fragment);
+        return;
+    }
+    if (!is_markdown_path(path)) {
+        requests.push(Request.Copy(href));
+        message = "not markdown, copied " + href;
+        return;
+    }
+    push_here();
+    pending_anchor = fragment;
+    requests.push(Request.Open(target));
+}
+
+void Viewer.go_back() {
+    if (back.size() == 0) {
+        message = "nothing to go back to";
+        return;
+    }
+    Place place = back.pop();
+    if (place.name == name) {
+        go_to_place(place);
+        return;
+    }
+    pending_place = [place];
+    requests.push(Request.Open(place.name));
+}
+
+void Viewer.open_outline() {
+    if (layout.headings.size() == 0) {
+        message = "no headings";
+        return;
+    }
+    outline = TUI_outline.Outline(outline_nodes(layout.headings, Cursor(0), 0));
+    // The cursor starts on the last heading at or above the window.
+    int current = 0;
+    for (int index in 0 .. layout.headings.size()) {
+        if (layout.headings[index].row <= top) {
+            current = index;
+        }
+    }
+    bool did_select = outline.did_select_id(str(current));
+    mode = Mode.Outline;
+}
+
+TUI_app.Action Viewer.outline_key(str key_name) {
+    if (key_name == "esc" || key_name == "q" || key_name == "o") {
+        mode = Mode.Normal;
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "j" || key_name == "down" || key_name == "ctrl-n") {
+        outline.move(1);
+    } else if (key_name == "k" || key_name == "up" || key_name == "ctrl-p") {
+        outline.move(-1);
+    } else if (key_name == "ctrl-d" || key_name == "pgdn") {
+        outline.move(10);
+    } else if (key_name == "ctrl-u" || key_name == "pgup") {
+        outline.move(-10);
+    } else if (key_name == "g" || key_name == "home") {
+        outline.move(-100000);
+    } else if (key_name == "G" || key_name == "end") {
+        outline.move(100000);
+    } else if (key_name == "l" || key_name == "right") {
+        outline.expand();
+    } else if (key_name == "h" || key_name == "left") {
+        outline.collapse();
+    } else if (key_name == "space" || key_name == "tab") {
+        outline.toggle();
+    } else if (key_name == "enter") {
+        match (outline.current()) {
+            case Some(TUI_outline.Row row): {
+                match (row.node.id.parse_int()) {
+                    case Some(int index): {
+                        back.push(place_here());
+                        scroll_to(layout.headings[index].row);
+                    }
+                    case None: {
+                    }
+                }
+            }
+            case None: {
+            }
+        }
+        mode = Mode.Normal;
+    } else if (key_name == "ctrl-c") {
+        return TUI_app.Action.Quit;
+    }
+    return TUI_app.Action.Redraw;
+}
+
+/// The number to repeat a command by: what was typed, or 1.
+int Viewer.take() {
+    int each = count;
+    count = 0;
+    if (each < 1) {
+        return 1;
+    }
+    return each;
+}
+
+void Viewer.page(int step) {
+    int size = height() - 1;
+    if (size < 1) {
+        size = 1;
+    }
+    scroll_to(top + step * size * take());
+}
+
+void Viewer.half_page(int step) {
+    int size = height() / 2;
+    if (size < 1) {
+        size = 1;
+    }
+    scroll_to(top + step * size * take());
+}
+
+/// Move to the `times`-th heading below (step 1) or above (step -1) the top
+/// of the window.
+void Viewer.heading(int step, int times) {
+    int target = -1;
+    int found = 0;
+    int size = layout.headings.size();
+    for (int each in 0 .. size) {
+        int index = each;
+        if (step < 0) {
+            index = size - 1 - each;
+        }
+        int row = layout.headings[index].row;
+        bool is_beyond = row > top;
+        if (step < 0) {
+            is_beyond = row < top;
+        }
+        if (is_beyond) {
+            found = found + 1;
+            target = row;
+            if (found == times) {
+                break;
+            }
+        }
+    }
+    if (target < 0) {
+        if (step > 0) {
+            message = "no more headings";
+        } else if (top > 0) {
+            scroll_to(0);
+        } else {
+            message = "no earlier heading";
+        }
+        return;
+    }
+    scroll_to(target);
+}
+
+void Viewer.yank() {
+    if (link >= 0) {
+        MDV_model.Link target = layout.links[link];
+        requests.push(Request.Copy(target.href));
+        message = "yanked " + target.href;
+        return;
+    }
+    for (int index in top .. layout.rows.size()) {
+        int block = layout.rows[index].block;
+        if (block >= 0 && layout.blocks[block].size() > 0) {
+            requests.push(Request.Copy(layout.blocks[block]));
+            message = "yanked " + str(layout.blocks[block].chars().size()) + " characters";
+            return;
+        }
+    }
+    message = "nothing to yank";
+}
+
+TUI_app.Action Viewer.search_key(term.Key key, str key_name) {
+    if (key_name == "esc" || key_name == "ctrl-c") {
+        mode = Mode.Normal;
+        query = "";
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "enter") {
+        commit_search();
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "backspace") {
+        List<int> chars = query.chars();
+        if (chars.size() == 0) {
+            mode = Mode.Normal;
+        } else {
+            chars.pop();
+            query = str.from_chars(chars);
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "ctrl-u") {
+        query = "";
+        return TUI_app.Action.Redraw;
+    }
+    int value = MDV_keys.char_of(key);
+    if (value >= 0) {
+        query = query + str.from_chars([value]);
+    }
+    return TUI_app.Action.Redraw;
+}
+
+TUI_app.Action Viewer.help_key(str key_name) {
+    if (key_name == "j" || key_name == "down" || key_name == "enter") {
+        help_top = help_top + 1;
+    } else if (key_name == "k" || key_name == "up") {
+        if (help_top > 0) {
+            help_top = help_top - 1;
+        }
+    } else if (key_name == "ctrl-d" || key_name == "pgdn" || key_name == "space") {
+        help_top = help_top + height() / 2;
+    } else if (key_name == "ctrl-u" || key_name == "pgup") {
+        help_top = help_top - height() / 2;
+        if (help_top < 0) {
+            help_top = 0;
+        }
+    } else if (key_name == "ctrl-c") {
+        return TUI_app.Action.Quit;
+    } else {
+        mode = Mode.Normal;
+        help_top = 0;
+    }
+    return TUI_app.Action.Redraw;
+}
+
+/// Open the next (step 1) or previous (-1) file of the set.
+void Viewer.step_file(int step) {
+    match (files.index_of(name)) {
+        case Some(int slot): {
+            int target = slot + step;
+            if (target < 0 || target >= files.size()) {
+                message = "no more files";
+                return;
+            }
+            push_here();
+            pending_anchor = "";
+            requests.push(Request.Open(files[target]));
+        }
+        case None: {
+            message = "not one of several files";
+        }
+    }
+}
+
+/// The two-key commands: `pending` is the first key, `key_name` the second.
+TUI_app.Action Viewer.sequence(str first, str key_name) {
+    if (first == "g" && key_name == "g") {
+        if (count > 0) {
+            scroll_to(take() - 1);
+        } else {
+            scroll_to(0);
+        }
+    } else if (first == "]" && key_name == "]") {
+        heading(1, take());
+    } else if (first == "[" && key_name == "[") {
+        heading(-1, take());
+    } else {
+        count = 0;
+    }
+    return TUI_app.Action.Redraw;
+}
+
+TUI_app.Action Viewer.normal_key(str key_name) {
+    if (pending.size() > 0) {
+        str first = pending;
+        pending = "";
+        return sequence(first, key_name);
+    }
+    if (key_name.size() == 1 && key_name.byte_at(0) >= '0' && key_name.byte_at(0) <= '9' && (count > 0 || key_name != "0")) {
+        count = count * 10 + (key_name.byte_at(0) - '0');
+        if (count > 1000000) {
+            count = 1000000;
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "q" || key_name == "ctrl-c") {
+        return TUI_app.Action.Quit;
+    }
+    if (key_name == "j" || key_name == "down" || key_name == "ctrl-n" || (key_name == "enter" && link < 0)) {
+        scroll_to(top + take());
+    } else if (key_name == "k" || key_name == "up" || key_name == "ctrl-p") {
+        scroll_to(top - take());
+    } else if (key_name == "ctrl-d") {
+        half_page(1);
+    } else if (key_name == "ctrl-u") {
+        half_page(-1);
+    } else if (key_name == "ctrl-f" || key_name == "pgdn" || key_name == "space") {
+        page(1);
+    } else if (key_name == "ctrl-b" || key_name == "pgup") {
+        page(-1);
+    } else if (key_name == "G" || key_name == "end") {
+        if (count > 0) {
+            scroll_to(take() - 1);
+        } else {
+            scroll_to(max_top());
+        }
+    } else if (key_name == "home") {
+        scroll_to(0);
+    } else if (key_name == "g" || key_name == "]" || key_name == "[") {
+        pending = key_name;
+    } else if (key_name == "/") {
+        mode = Mode.Search;
+        query = "";
+        count = 0;
+    } else if (key_name == "n") {
+        go_to_hit_after(take(), 1);
+    } else if (key_name == "N") {
+        go_to_hit_after(take(), -1);
+    } else if (key_name == "o") {
+        count = 0;
+        open_outline();
+    } else if (key_name == "tab") {
+        next_link(1);
+        count = 0;
+    } else if (key_name == "backtab") {
+        next_link(-1);
+        count = 0;
+    } else if (key_name == "enter") {
+        follow(layout.links[link].href);
+        count = 0;
+    } else if (key_name == "ctrl-o" || key_name == "backspace" || key_name == "ctrl-h") {
+        go_back();
+        count = 0;
+    } else if (key_name == "r") {
+        requests.push(Request.Reload);
+        count = 0;
+    } else if (key_name == "y") {
+        yank();
+        count = 0;
+    } else if (key_name == "?") {
+        mode = Mode.Help;
+        help_top = 0;
+        count = 0;
+    } else if (key_name == ">") {
+        step_file(1);
+        count = 0;
+    } else if (key_name == "<") {
+        step_file(-1);
+        count = 0;
+    } else if (key_name == "esc") {
+        count = 0;
+        link = -1;
+        needle = "";
+        find_hits();
+    } else {
+        count = 0;
+    }
+    return TUI_app.Action.Redraw;
+}
+
+void Viewer.go_to_hit_after(int times, int step) {
+    if (needle.size() == 0) {
+        message = "no previous search";
+        return;
+    }
+    if (hits.size() == 0) {
+        message = "pattern not found: " + needle;
+        return;
+    }
+    int target = hit;
+    if (target < 0) {
+        target = first_hit_from_top() - step;
+    }
+    go_to_hit(target + step * times);
+}
+
+/// One key.
+pub TUI_app.Action Viewer.key(term.Key pressed) {
+    message = "";
+    str key_name = MDV_keys.name_of(pressed);
+    match (mode) {
+        case Normal: {
+            return normal_key(key_name);
+        }
+        case Search: {
+            return search_key(pressed, key_name);
+        }
+        case Outline: {
+            return outline_key(key_name);
+        }
+        case Help: {
+            return help_key(key_name);
+        }
+    }
+}
+
+/// Type `keys` (see `MDV_keys.key_of`), for a test: the last action answered.
+pub TUI_app.Action Viewer.press(List<str> keys) {
+    TUI_app.Action last = TUI_app.Action.Continue;
+    for (str each in keys) {
+        last = key(MDV_keys.key_of(each));
+    }
+    return last;
+}
+
+/// A viewer showing `text` (the contents of `name`) in a terminal of `columns` x
+/// `rows`.
+pub Viewer open(List<str> files, str name, str text, int columns, int rows) {
+    MDV_model.Document doc = MDV_prepare.prepare(text);
+    MDV_model.Layout layout = MDV_layout.layout(doc, text_width_for(columns));
+    return Viewer(files, name, text, doc, layout, columns, rows);
+}
+
+pub int text_width_for(int columns) {
+    int width = columns - 2 * MARGIN;
+    if (width > MAX_TEXT_WIDTH) {
+        width = MAX_TEXT_WIDTH;
+    }
+    if (width < MIN_TEXT_WIDTH) {
+        width = MIN_TEXT_WIDTH;
+    }
+    return width;
+}
+
+// --- geometry -------------------------------------------------------------------
+
+// --- places ---------------------------------------------------------------------
+
+type Anchor {
+    int block;
+    int offset;
+}
+
+// --- the document ----------------------------------------------------------------
+
+// --- search -------------------------------------------------------------------------
+
+bool has_upper(str text) {
+    for (int value in text.chars()) {
+        if (value >= 'A' && value <= 'Z') {
+            return true;
+        }
+    }
+    return false;
+}
+
+// --- links -----------------------------------------------------------------------------
+
+/// Does `href` name something other than a file or an anchor?
+pub bool is_external(str href) {
+    if (href.starts_with("//")) {
+        return true;
+    }
+    int length = href.size();
+    if (length > 40) {
+        length = 40;
+    }
+    for (int index in 0 .. length) {
+        int value = href.byte_at(index);
+        if (value == ':') {
+            return index >= 2;
+        }
+        bool is_letter = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+        bool is_other = (value >= '0' && value <= '9') || value == '+' || value == '-' || value == '.';
+        if (!is_letter && !(index > 0 && is_other)) {
+            return false;
+        }
+    }
+    return false;
+}
+
+bool is_markdown_path(str path) {
+    str lower = path.to_lower();
+    return lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdown") || lower.ends_with(".txt");
+}
+
+/// The path a link in the file `base` means by `path`: relative to `base`'s
+/// directory unless it is absolute.
+pub str resolve(str base, str path) {
+    if (path.starts_with("/")) {
+        return path;
+    }
+    str rest = path;
+    while (rest.starts_with("./")) {
+        rest = rest.substr(2, rest.size());
+    }
+    int cut = -1;
+    for (int index in 0 .. base.size()) {
+        if (base.byte_at(index) == '/') {
+            cut = index;
+        }
+    }
+    if (cut < 0) {
+        return rest;
+    }
+    return base.substr(0, cut + 1) + rest;
+}
+
+// --- the outline ----------------------------------------------------------------------------
+
+type Cursor {
+    int index;
+}
+
+List<TUI_outline.Node> outline_nodes(List<MDV_model.Heading> headings, Cursor cursor, int parent_level) {
+    List<TUI_outline.Node> out = [];
+    while (cursor.index < headings.size() && headings[cursor.index].level > parent_level) {
+        MDV_model.Heading heading = headings[cursor.index];
+        int id = cursor.index;
+        cursor.index = cursor.index + 1;
+        List<TUI_outline.Node> kids = outline_nodes(headings, cursor, heading.level);
+        out.push(TUI_outline.Node.section(str(id), heading.text, kids));
+    }
+    return out;
+}
+
+// --- keys -------------------------------------------------------------------------------------

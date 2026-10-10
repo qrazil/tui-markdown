@@ -1,3 +1,4 @@
 .m31-deps/
 /tui-markdown
 /dist/
+__pycache__/

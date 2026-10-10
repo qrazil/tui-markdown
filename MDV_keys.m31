@@ -1,0 +1,172 @@
+// Keys by name.
+//
+// The viewer's state machine decides on names, not on `term.Code` variants:
+// `j`, `ctrl-d`, `enter`, `backtab`. A name is what the help screen shows and
+// what a test types, and one `match` here turns the 17 key codes into it so
+// that no other module needs to.
+
+import term;
+
+/// The name of `key`: the character itself for a plain printable key (a
+/// shifted letter is the capital, as the terminal sends it), `ctrl-d` and
+/// `alt-x` with modifiers, `space`, `enter`, `tab`, `backtab`, `backspace`,
+/// `esc`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`,
+/// `insert`, `delete`, and `f5` and the like.
+pub str name_of(term.Key key) {
+    str base = "";
+    match (key.code) {
+        case Char(int value): {
+            if (value == ' ') {
+                base = "space";
+            } else {
+                base = str.from_chars([value]);
+            }
+        }
+        case Enter: {
+            base = "enter";
+        }
+        case Tab: {
+            base = "tab";
+        }
+        case BackTab: {
+            base = "backtab";
+        }
+        case Backspace: {
+            base = "backspace";
+        }
+        case Escape: {
+            base = "esc";
+        }
+        case Up: {
+            base = "up";
+        }
+        case Down: {
+            base = "down";
+        }
+        case Right: {
+            base = "right";
+        }
+        case Left: {
+            base = "left";
+        }
+        case Home: {
+            base = "home";
+        }
+        case End: {
+            base = "end";
+        }
+        case PageUp: {
+            base = "pgup";
+        }
+        case PageDown: {
+            base = "pgdn";
+        }
+        case Insert: {
+            base = "insert";
+        }
+        case Delete: {
+            base = "delete";
+        }
+        case F(int number): {
+            base = "f" + str(number);
+        }
+    }
+    str prefix = "";
+    if (key.has(term.CTRL)) {
+        prefix = prefix + "ctrl-";
+    }
+    if (key.has(term.ALT)) {
+        prefix = prefix + "alt-";
+    }
+    return prefix + base;
+}
+
+/// The code point of a plain character key (no ctrl, no alt), -1 for any
+/// other key.
+pub int char_of(term.Key key) {
+    if (key.has(term.CTRL) || key.has(term.ALT)) {
+        return -1;
+    }
+    str name = name_of(key);
+    if (name == "space") {
+        return ' ';
+    }
+    List<int> chars = name.chars();
+    if (chars.size() == 1) {
+        return chars[0];
+    }
+    return -1;
+}
+
+/// The key a name stands for: the inverse of `name_of` for every key the
+/// viewer knows, so a test can type `ctrl-d` or `G`. A name that is not one is
+/// the plain character keys of its text taken one at a time by `keys_of`.
+pub term.Key key_of(str name) {
+    int mods = 0;
+    str rest = name;
+    if (rest.starts_with("ctrl-") && rest.size() > 5) {
+        mods = mods | term.CTRL;
+        rest = rest.substr(5, rest.size());
+    }
+    if (rest.starts_with("alt-") && rest.size() > 4) {
+        mods = mods | term.ALT;
+        rest = rest.substr(4, rest.size());
+    }
+    if (rest == "enter") {
+        return term.Key(term.Code.Enter, mods);
+    }
+    if (rest == "tab") {
+        return term.Key(term.Code.Tab, mods);
+    }
+    if (rest == "backtab") {
+        return term.Key(term.Code.BackTab, mods);
+    }
+    if (rest == "backspace") {
+        return term.Key(term.Code.Backspace, mods);
+    }
+    if (rest == "esc") {
+        return term.Key(term.Code.Escape, mods);
+    }
+    if (rest == "up") {
+        return term.Key(term.Code.Up, mods);
+    }
+    if (rest == "down") {
+        return term.Key(term.Code.Down, mods);
+    }
+    if (rest == "left") {
+        return term.Key(term.Code.Left, mods);
+    }
+    if (rest == "right") {
+        return term.Key(term.Code.Right, mods);
+    }
+    if (rest == "home") {
+        return term.Key(term.Code.Home, mods);
+    }
+    if (rest == "end") {
+        return term.Key(term.Code.End, mods);
+    }
+    if (rest == "pgup") {
+        return term.Key(term.Code.PageUp, mods);
+    }
+    if (rest == "pgdn") {
+        return term.Key(term.Code.PageDown, mods);
+    }
+    if (rest == "space") {
+        return term.Key(term.Code.Char(' '), mods);
+    }
+    List<int> chars = rest.chars();
+    int first = 0;
+    if (chars.size() > 0) {
+        first = chars[0];
+    }
+    return term.Key(term.Code.Char(first), mods);
+}
+
+/// The keys of a string of plain characters, one each: `keys_of("gg")`.
+pub List<term.Key> keys_of(str text) {
+    List<term.Key> out = [];
+    for (int value in text.chars()) {
+        out.push(term.Key(term.Code.Char(value), 0));
+    }
+    return out;
+}
