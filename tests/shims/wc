@@ -1,0 +1,3 @@
+#!/bin/sh
+# BSD `wc` (macOS) right-aligns its counts with leading blanks, so `[ "$(... | wc -l)" = 3 ]` never matches; GNU prints them bare.
+/usr/bin/wc "$@" | sed 's/^ *//'

@@ -1,0 +1,177 @@
+name: Release
+
+# Build the tui-markdown release binary for each platform and attach them to the GitHub Release
+# for a pushed version tag -- the same pattern qrazil/gitui's own
+# release.yml uses, against a pinned release of
+# qrazil/m31 (for the compiler + runtime SDK) and the qrazil/tui and
+# qrazil/term-markdown commits named in `deps`.
+#
+#   git tag v0.1.0 && git push origin v0.1.0   # a human does this, not CI or an agent
+#
+# test.yml is a hard precondition, exactly as qrazil/m31's own release.yml
+# treats its gates job: a broken build must never produce a release.
+env:
+  M31_REF: v0.3.2
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # softprops/action-gh-release needs this to create the release and upload assets
+
+jobs:
+  test:
+    name: Test (precondition)
+    uses: ./.github/workflows/test.yml
+
+  build-linux-x86_64:
+    name: Build — Linux x86-64
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and extract the m31 release (${{ env.M31_REF }})
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/m31.tar.gz" \
+            "https://github.com/qrazil/m31/releases/download/${{ env.M31_REF }}/m31-linux-x86_64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/m31"
+          tar -C "$RUNNER_TEMP/m31" -xzf "$RUNNER_TEMP/m31.tar.gz"
+          chmod +x "$RUNNER_TEMP/m31/m31c"
+          echo "LANGC=$RUNNER_TEMP/m31/m31c" >> "$GITHUB_ENV"
+          echo "M31_ROOT=$RUNNER_TEMP/m31" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          OUT=dist/tui-markdown-linux-x86_64
+          mkdir -p "$OUT"
+          bash scripts/build.sh -o "$OUT/tui-markdown"
+          cp README.md docs/design.md "$OUT/" 2>/dev/null || true
+          sed 's/^ *//' > "$OUT/NOTES.txt" <<EOF
+          tui-markdown — Linux x86-64 release build
+          Built from commit: ${GITHUB_SHA}
+          Tag: ${GITHUB_REF_NAME}
+          Built against m31 ${{ env.M31_REF }}, tui $(awk '$1=="tui"{print $3}' deps), term-markdown $(awk '$1=="markdown"{print $3}' deps)
+
+          tui-markdown                  ./tui-markdown README.md   (j/k scroll, ? for help)
+          EOF
+
+      - name: Package
+        run: tar -C "dist/tui-markdown-linux-x86_64" -czf tui-markdown-linux-x86_64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tui-markdown-linux-x86_64
+          path: tui-markdown-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  build-linux-aarch64:
+    name: Build — Linux aarch64
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and extract the m31 release (${{ env.M31_REF }})
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/m31.tar.gz" \
+            "https://github.com/qrazil/m31/releases/download/${{ env.M31_REF }}/m31-linux-aarch64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/m31"
+          tar -C "$RUNNER_TEMP/m31" -xzf "$RUNNER_TEMP/m31.tar.gz"
+          chmod +x "$RUNNER_TEMP/m31/m31c"
+          echo "LANGC=$RUNNER_TEMP/m31/m31c" >> "$GITHUB_ENV"
+          echo "M31_ROOT=$RUNNER_TEMP/m31" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          OUT=dist/tui-markdown-linux-aarch64
+          mkdir -p "$OUT"
+          bash scripts/build.sh -o "$OUT/tui-markdown"
+          cp README.md docs/design.md "$OUT/" 2>/dev/null || true
+          sed 's/^ *//' > "$OUT/NOTES.txt" <<EOF
+          tui-markdown — Linux aarch64 release build
+          Built from commit: ${GITHUB_SHA}
+          Tag: ${GITHUB_REF_NAME}
+          Built against m31 ${{ env.M31_REF }}, tui $(awk '$1=="tui"{print $3}' deps), term-markdown $(awk '$1=="markdown"{print $3}' deps)
+
+          tui-markdown                  ./tui-markdown README.md   (j/k scroll, ? for help)
+          EOF
+
+      - name: Package
+        run: tar -C "dist/tui-markdown-linux-aarch64" -czf tui-markdown-linux-aarch64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tui-markdown-linux-aarch64
+          path: tui-markdown-linux-aarch64.tar.gz
+          if-no-files-found: error
+
+  build-macos-arm64:
+    name: Build — macOS (arm64)
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and extract the m31 release (${{ env.M31_REF }})
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/m31.tar.gz" \
+            "https://github.com/qrazil/m31/releases/download/${{ env.M31_REF }}/m31-macos-arm64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/m31"
+          tar -C "$RUNNER_TEMP/m31" -xzf "$RUNNER_TEMP/m31.tar.gz"
+          chmod +x "$RUNNER_TEMP/m31/m31c"
+          echo "LANGC=$RUNNER_TEMP/m31/m31c" >> "$GITHUB_ENV"
+          echo "M31_ROOT=$RUNNER_TEMP/m31" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          OUT=dist/tui-markdown-macos-arm64
+          mkdir -p "$OUT"
+          bash scripts/build.sh -o "$OUT/tui-markdown"
+          cp README.md docs/design.md "$OUT/" 2>/dev/null || true
+          sed 's/^ *//' > "$OUT/NOTES.txt" <<EOF
+          tui-markdown — macOS arm64 (Apple Silicon) release build
+          Built from commit: ${GITHUB_SHA}
+          Tag: ${GITHUB_REF_NAME}
+          Built against m31 ${{ env.M31_REF }}, tui $(awk '$1=="tui"{print $3}' deps), term-markdown $(awk '$1=="markdown"{print $3}' deps)
+
+          tui-markdown                  ./tui-markdown README.md   (j/k scroll, ? for help)
+          EOF
+
+      - name: Package
+        run: tar -C "dist/tui-markdown-macos-arm64" -czf tui-markdown-macos-arm64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tui-markdown-macos-arm64
+          path: tui-markdown-macos-arm64.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs:
+      - test
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-macos-arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          fail_on_unmatched_files: true
+          generate_release_notes: true
