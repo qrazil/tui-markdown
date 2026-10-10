@@ -70,8 +70,8 @@ build() {
 tally() {
     local label=$1 file=$2 last count failed
     last=$(tail -n 1 "$file")
-    count=$(printf '%s\n' "$last" | sed -n 's/^\([0-9][0-9]*\) \(passed\|checks\), \([0-9][0-9]*\) failed.*$/\1/p')
-    failed=$(printf '%s\n' "$last" | sed -n 's/^\([0-9][0-9]*\) \(passed\|checks\), \([0-9][0-9]*\) failed.*$/\3/p')
+    count=$(printf '%s\n' "$last" | sed -E -n 's/^([0-9]+) (passed|checks), ([0-9]+) failed.*$/\1/p')
+    failed=$(printf '%s\n' "$last" | sed -E -n 's/^([0-9]+) (passed|checks), ([0-9]+) failed.*$/\3/p')
     if [ -z "$count" ]; then
         bad "$label: no summary line" "$(tail -n 5 "$file")"
         return
