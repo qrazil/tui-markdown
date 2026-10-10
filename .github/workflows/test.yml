@@ -15,7 +15,7 @@ name: Test
 # Bump M31_REF, or the commit on a dependency line of `deps`, by hand when this
 # repo should pick up a newer release.
 env:
-  M31_REF: v0.3.2
+  M31_REF: v0.4.0
 
 on:
   push:

@@ -21,7 +21,7 @@
 
 import MDV_model;
 import tui.TUI_text;
-import unicode;
+import text.unicode;
 
 /// A run that cannot be broken inside: a word, or one wide character.
 type Unit {

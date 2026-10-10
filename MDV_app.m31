@@ -7,7 +7,7 @@
 // comparing size and modification time with the last look.
 
 import MDV_viewer;
-import base64;
+import encoding.base64;
 import fs;
 import io;
 import term;

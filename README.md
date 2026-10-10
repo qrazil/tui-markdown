@@ -94,7 +94,7 @@ bash tests/test.sh               # fmt, lint, unit, oracle, goldens, --cat, pty
 ```
 
 CI (`.github/workflows/test.yml`) runs `tests/test.sh` on Linux x86-64,
-Linux aarch64 and macOS arm64 against m31 v0.3.2; `release.yml` builds the
+Linux aarch64 and macOS arm64 against m31 v0.4.0; `release.yml` builds the
 binaries for a pushed `v*` tag.
 
 ## Architecture

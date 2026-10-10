@@ -17,7 +17,7 @@ import MDV_app;
 import io;
 import os;
 
-List<str> argv = os.args();
+List<str> argv = os.arguments();
 int width = 40;
 match (argv[1].parse_int()) {
     case Some(int given): {

@@ -161,7 +161,7 @@ int run_viewer(List<str> names, List<str> files, MDV_theme.Theme theme, TUI_styl
         }
         case Ok(Source source): {
             term.Size size = TUI_app.screen_size();
-            MDV_viewer.Viewer viewer = MDV_viewer.open(files, source.name, source.text, size.cols, size.rows);
+            MDV_viewer.Viewer viewer = MDV_viewer.open(files, source.name, source.text, size.columns, size.rows);
             MDV_app.App app = MDV_app.open(viewer);
             app.is_watching = is_watching;
             MDV_render.Screen screen = MDV_render.Screen(viewer, theme);
@@ -208,13 +208,13 @@ pub int run(List<str> argv) {
             }
             MDV_theme.Theme theme = pick_theme(given);
             TUI_style.Depth depth = pick_depth();
-            bool is_interactive = !given.flag("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
+            bool is_interactive = !given.is_flag_set("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
             if (!is_interactive) {
                 int width = given.integer("width").or(0);
                 if (width < 1) {
                     width = DEFAULT_CAT_WIDTH;
                     if (term.is_terminal(1)) {
-                        width = TUI_app.screen_size().cols;
+                        width = TUI_app.screen_size().columns;
                     }
                 }
                 return run_cat(names, width, theme, depth);
@@ -223,7 +223,7 @@ pub int run(List<str> argv) {
             if (names[0] != MDV_app.STDIN_NAME && names[0] != "-") {
                 files = names;
             }
-            return run_viewer(names, files, theme, depth, !given.flag("no-watch"));
+            return run_viewer(names, files, theme, depth, !given.is_flag_set("no-watch"));
         }
     }
 }

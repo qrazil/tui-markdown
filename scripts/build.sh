@@ -15,7 +15,7 @@
 # m31c only emits C; the executable is that C linked against the m31 runtime's
 # own source files, so this needs both:
 #
-#   - LANGC: the m31c compiler binary (v0.3.2 or later). Default ./m31c.
+#   - LANGC: the m31c compiler binary (v0.4.0 or later). Default ./m31c.
 #   - M31_ROOT: a directory containing config.sh and runtime/ (a checkout of
 #     github.com/qrazil/m31, or an extracted release's bundled runtime SDK)
 #     matching LANGC's version. No default: a missing M31_ROOT is a clear error.

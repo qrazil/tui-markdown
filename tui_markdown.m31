@@ -10,7 +10,7 @@
 import MDV_cli;
 import os;
 
-List<str> argv = os.args();
+List<str> argv = os.arguments();
 List<str> rest = [];
 for (int index in 1 .. argv.size()) {
     rest.push(argv[index]);

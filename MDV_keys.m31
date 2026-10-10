@@ -72,10 +72,10 @@ pub str name_of(term.Key key) {
         }
     }
     str prefix = "";
-    if (key.has(term.CTRL)) {
+    if (key.has_modifiers(term.CTRL)) {
         prefix = prefix + "ctrl-";
     }
-    if (key.has(term.ALT)) {
+    if (key.has_modifiers(term.ALT)) {
         prefix = prefix + "alt-";
     }
     return prefix + base;
@@ -84,7 +84,7 @@ pub str name_of(term.Key key) {
 /// The code point of a plain character key (no ctrl, no alt), -1 for any
 /// other key.
 pub int char_of(term.Key key) {
-    if (key.has(term.CTRL) || key.has(term.ALT)) {
+    if (key.has_modifiers(term.CTRL) || key.has_modifiers(term.ALT)) {
         return -1;
     }
     str name = name_of(key);
