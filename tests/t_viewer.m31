@@ -10,7 +10,7 @@ import MDV_prepare;
 import MDV_viewer;
 import io;
 import term;
-import tui.TUI_app;
+import tui.app.TUI_app;
 
 type Tally {
     int passed = 0;

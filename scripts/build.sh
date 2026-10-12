@@ -7,7 +7,7 @@
 #       -> ./mdv
 #
 # `tui_markdown.m31` imports this repo's own MDV_ modules, github.com/qrazil/tui's
-# widgets as `import tui.TUI_app;` and github.com/qrazil/term-markdown's parser as
+# widgets as `import tui.app.TUI_app;` and github.com/qrazil/term-markdown's parser as
 # `import markdown.MD_blocks;`. The `deps` file at the repo root names both and
 # the exact commits; the first compile fetches them into `.m31-deps/` and
 # records them in `deps.lock`, so nothing is staged or copied.

@@ -9,7 +9,7 @@ import MDV_layout;
 import MDV_model;
 import MDV_prepare;
 import MDV_theme;
-import tui.TUI_style;
+import tui.core.TUI_style;
 
 /// `layout` as bytes in the terminal's language at colour depth `depth`.
 pub bytes render(MDV_model.Layout layout, MDV_theme.Theme theme, TUI_style.Depth depth) {

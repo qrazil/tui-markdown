@@ -17,8 +17,8 @@ import MDV_layout;
 import MDV_model;
 import MDV_prepare;
 import term;
-import tui.TUI_app;
-import tui.TUI_outline;
+import tui.app.TUI_app;
+import tui.widgets.TUI_outline;
 
 /// Something the viewer wants done that it cannot do itself.
 pub enum Request {

@@ -9,7 +9,7 @@
 
 import MDV_model;
 import MDV_wrap;
-import tui.TUI_text;
+import tui.core.TUI_text;
 
 const str BAR = "\u{2502} ";
 const str BULLET = "\u{2022} ";

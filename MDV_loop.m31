@@ -15,10 +15,10 @@
 
 import io;
 import term;
-import tui.TUI_app;
-import tui.TUI_buffer;
-import tui.TUI_diff;
-import tui.TUI_widget;
+import tui.app.TUI_app;
+import tui.core.TUI_buffer;
+import tui.app.TUI_diff;
+import tui.core.TUI_widget;
 
 /// How long a read waits, which is also how long a held ESC waits for the
 /// rest of a key sequence.

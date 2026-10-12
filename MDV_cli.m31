@@ -12,8 +12,8 @@ import args;
 import io;
 import os;
 import term;
-import tui.TUI_app;
-import tui.TUI_style;
+import tui.app.TUI_app;
+import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
 

@@ -1,3 +1,26 @@
+# tui-markdown 0.2.0: tui 0.5.0 and the import paths
+
+Version 0.2.0, from master c2c6f94 (v0.1.1). **Nothing a user sees changed**:
+the command line, the keys, the rendering (every golden file is byte for byte
+what it was) and the exit statuses are the same. The minor bump is because the
+`deps` pin of tui moves to v0.5.0 (1609d91), whose modules live in `core/`,
+`widgets/` and `app/` folders, so every tui import path changed. The term-markdown
+pin is unchanged (a55a55e). No `MDV_*` module, function or type was renamed.
+
+| module | old import | new import |
+|---|---|---|
+| `TUI_geometry`, `TUI_style`, `TUI_buffer`, `TUI_text`, `TUI_widget` | `import tui.TUI_x;` | `import tui.core.TUI_x;` |
+| `TUI_menu`, `TUI_outline` | `import tui.TUI_x;` | `import tui.widgets.TUI_x;` |
+| `TUI_app`, `TUI_diff` | `import tui.TUI_x;` | `import tui.app.TUI_x;` |
+
+Files that changed: `MDV_app`, `MDV_cat`, `MDV_cli`, `MDV_layout`, `MDV_loop`,
+`MDV_render`, `MDV_theme`, `MDV_viewer`, `MDV_wrap`, `tests/t_viewer.m31` and
+the build note in `scripts/build.sh`. This repository stays flat (14 `MDV_*`
+files at the root next to the entry file `tui_markdown.m31`): folders are worth
+adding above about 20 modules.
+
+---
+
 # tui-markdown -> m31 0.4.0
 
 Version 0.1.1, from master 2f45842 (v0.1.0). **Nothing a user sees changed**:

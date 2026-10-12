@@ -8,7 +8,7 @@
 // attribute either, so a pipe gets text.
 
 import MDV_model;
-import tui.TUI_style;
+import tui.core.TUI_style;
 
 pub type Theme {
     pub str name;

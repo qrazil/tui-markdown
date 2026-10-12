@@ -97,6 +97,19 @@ CI (`.github/workflows/test.yml`) runs `tests/test.sh` on Linux x86-64,
 Linux aarch64 and macOS arm64 against m31 v0.4.0; `release.yml` builds the
 binaries for a pushed `v*` tag.
 
+## Layout
+
+```
+tui_markdown.m31   entry point (imports MDV_cli)
+MDV_*.m31          the program's modules, flat at the root (14 files)
+deps, deps.lock    version and pins: tui (widgets), term-markdown (parser)
+scripts/build.sh   builds ./tui-markdown
+tests/             test.sh (the one entry point), unit, oracle, goldens, pty
+docs/design.md     the design and the changes proposed to term-markdown
+RENAMES.md         what changed between releases, for a user or a dependent
+.github/workflows  test.yml (3 platforms), release.yml (v* tags)
+```
+
 ## Architecture
 
 ```
@@ -132,6 +145,19 @@ changes proposed to term-markdown.
   `BLESS=1 bash tests/test.sh` rewrites them; read the diff.
 - `pty_e2e.py`: the real binary under a pty with a small terminal emulator, 73
   checks.
+
+## Release
+
+Bump `version` in `deps`, add the entry to `RENAMES.md`, push to master and wait
+for `test.yml` to be green on all three platforms, then tag and push:
+
+```
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`release.yml` re-runs `test.yml` as a hard precondition, builds the binary for
+Linux x86-64, Linux aarch64 and macOS arm64, and publishes the three tarballs
+on the GitHub release.
 
 ## Limits
 

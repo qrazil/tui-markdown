@@ -11,7 +11,7 @@ import encoding.base64;
 import fs;
 import io;
 import term;
-import tui.TUI_app;
+import tui.app.TUI_app;
 
 /// The name shown for text that came from standard input.
 pub const str STDIN_NAME = "<stdin>";

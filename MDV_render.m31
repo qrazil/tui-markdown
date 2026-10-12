@@ -8,12 +8,12 @@
 import MDV_model;
 import MDV_theme;
 import MDV_viewer;
-import tui.TUI_buffer;
-import tui.TUI_geometry;
-import tui.TUI_menu;
-import tui.TUI_style;
-import tui.TUI_text;
-import tui.TUI_widget;
+import tui.core.TUI_buffer;
+import tui.core.TUI_geometry;
+import tui.widgets.TUI_menu;
+import tui.core.TUI_style;
+import tui.core.TUI_text;
+import tui.core.TUI_widget;
 
 pub type Screen {
     pub MDV_viewer.Viewer viewer;
