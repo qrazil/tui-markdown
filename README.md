@@ -14,6 +14,14 @@ tui-markdown --cat README.md      print the rendering and exit
 tui-markdown README.md | less -R  (a pipe on stdout is --cat automatically)
 ```
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qrazil/tui-markdown/master/install.sh | sh
+```
+
+Picks the release for your OS and CPU, unpacks it under `~/.local/opt/tui-markdown/<version>` and links the programs into `~/.local/bin`. `VERSION=v1.2.3` pins a release, `PREFIX=...` moves the install, `sh install.sh --uninstall` removes it.
+
 ## What it shows
 
 Headings, paragraphs (wrapped to the terminal, reflowed on resize), emphasis,
