@@ -22,6 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/qrazil/tui-markdown/master/install.
 
 Picks the release for your OS and CPU, unpacks it under `~/.local/opt/tui-markdown/<version>` and links the programs into `~/.local/bin`. `VERSION=v1.2.3` pins a release, `PREFIX=...` moves the install, `sh install.sh --uninstall` removes it.
 
+On Alpine (musl) the installer picks the `-musl` Linux asset built by `scripts/ci-musl.sh`; `LIBC=gnu|musl` overrides detection, and a release without a musl asset falls back to the glibc one.
+
 ## What it shows
 
 Headings, paragraphs (wrapped to the terminal, reflowed on resize), emphasis,
@@ -102,7 +104,7 @@ bash tests/test.sh               # fmt, lint, unit, oracle, goldens, --cat, pty
 ```
 
 CI (`.github/workflows/test.yml`) runs `tests/test.sh` on Linux x86-64,
-Linux aarch64 and macOS arm64 against m31 v0.4.0; `release.yml` builds the
+Linux aarch64 and macOS arm64 against m31 v0.5.0; `release.yml` builds the
 binaries for a pushed `v*` tag.
 
 ## Layout
