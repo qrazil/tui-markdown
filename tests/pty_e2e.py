@@ -262,6 +262,13 @@ class Session:
         os.write(self.master, ("\x1b[<%d;%d;%d%s" % (code, col, row, final)).encode())
         self.drain(0.25)
 
+    def multi_click(self, col, row, times):
+        """`times` press/release pairs in ONE write, so they arrive inside the
+        double-click window however slow the machine or the pty is."""
+        one = "\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (col, row, col, row)
+        os.write(self.master, (one * times).encode())
+        self.drain(0.4)
+
     def click(self, col, row):
         self.mouse("down", col, row)
         self.mouse("up", col, row)
@@ -650,10 +657,7 @@ def main():
     check("the toolbar B button bolds the dragged selection", "**hell**o world" in s.text(), s.text())
     s.send("{ctrl-z}")
     # double click selects a word, then typing replaces it
-    s.mouse("down", col + 2, 3)
-    s.mouse("up", col + 2, 3)
-    s.mouse("down", col + 2, 3)
-    s.mouse("up", col + 2, 3)
+    s.multi_click(col + 2, 3, 2)
     s.send("X")
     check("a double click selects a word and typing replaces it", s.screen.lines()[2].strip().startswith("X world"), s.text())
     s.send("{ctrl-z}")
