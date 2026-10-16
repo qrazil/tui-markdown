@@ -1,7 +1,7 @@
 // Syntax colouring for fenced code: a fence's info string to the language the
 // `syntax` library knows, and each line of code to spans whose style bits
 // carry the token class (`MDV_model.syntax_style`). Which colour a class is
-// belongs to the theme, so a theme change never re-tokenizes.
+// is_listy to the theme, so a theme change never re-tokenizes.
 
 import MDV_model;
 import tui.core.TUI_syntax;

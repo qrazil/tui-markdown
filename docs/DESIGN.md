@@ -97,6 +97,76 @@ and costs no layout code), per-block incremental relayout (layout is whole
 document per width; fast enough for the documents tried, measured in the
 test run).
 
+## Part 3. Editing (0.4.0)
+
+Not a full text editor: a document editor in the spirit of a VS Code preview.
+Mouse first, desktop keys, no modes to learn.
+
+### Decision: its own editing core (`MDV_edit`), not m3dit's, not `TUI_textarea`
+
+- m3dit's `MED_buffer` / `MED_editor` are the right shape (one `splice`
+  mutator, `Edit` records the undo reverses) and the idea is copied, but they
+  are modules of an application: the editor there is vim (modes, registers,
+  an undo *tree*, marks) and `MED_editor` is 1,400 lines that assume it. Taking
+  them would mean depending on the application repo for one 200-line idea, so
+  they were not entangled; the core here is `MDV_edit` (about 450 lines).
+- `tui`'s `TextArea` is library quality and was the other candidate. It is a
+  widget (it draws itself and decodes its own keys), keeps undo as snapshots
+  of the whole line list, and has no way to group an edit run or to run a
+  markdown rule between a key and its effect. The assists need `splice`-level
+  control; a snapshot undo of a 10,000-line file per keystroke is also the
+  wrong cost.
+- What `MDV_edit` has: lines and a caret on grapheme boundaries (`TUI_text`),
+  a selection, one mutator (`splice`) that records `Edit(from, removed,
+  inserted)`, undo groups (a run of typing is one step; every command is one;
+  moving the caret seals the open group), `dirty_from` so a highlight cache
+  knows where to forget, and the motions.
+- `MDV_assist` is the markdown on top, each rule one function over a buffer
+  and tested on `before -> command -> after` strings (`tests/t_edit.m31`).
+
+### Panes
+
+Preview, Source and Live all produce an ordinary `MDV_model.Layout`, so
+scrolling, search, the sidebar and the mouse code are the same for all three.
+
+- **Preview** is the 0.3 layout.
+- **Source** (`MDV_live.source_layout`): every line as written, wrapped at the
+  text width at a space when there is one; a row knows its source line and the
+  byte offset of its text (`Row.line`, `Row.col`). Colour comes from the
+  `syntax` library's markdown grammar, per line, with the end state of each
+  line kept so a fence colours the lines inside it; edits forget only from the
+  first changed line (`Buffer.dirty_from`).
+- **Live** (`MDV_live.live_layout`): at the grain of a block (a paragraph, a
+  heading, a whole list, a table, a fence), the block that holds the caret is
+  Source and the rest is Preview rows from a per-document cache. Moving the
+  caret only changes which block is source. Typing inside a line never
+  re-parses: the old document serves until the caret leaves the block, a
+  structural edit (a line added or removed, undo, paste, replace) re-parses.
+  Clicking a rendered block puts the caret at its first line.
+
+It opens in **Preview**: a file is usually opened to be read, and the pane
+that cannot change it by accident is the safe default (`--mode`/`--edit`
+change that).
+
+### Keys
+
+Desktop keys, chosen so they reach the program on every terminal: the decoder
+(`lib/term.m31`) cannot tell `Ctrl-H` from Backspace, `Ctrl-I` from Tab,
+`Ctrl-M` from Enter, and `Ctrl-1`..`Ctrl-6` are not sent at all, so replace
+is `Ctrl-R` (`Ctrl-H` also works on a terminal speaking the CSI-u protocol),
+italic and the heading levels are on `Alt`. Soft wrap is always on in the
+editing panes (a wrapped row is a row; horizontal scrolling was not done).
+
+### What is not done
+
+- Real terminals were not available to the author: every behaviour is tested
+  through a pty with an emulator and SGR 1006 mouse reports (`tests/pty_e2e.py`),
+  not in kitty, iTerm2, Ghostty or Terminal.app.
+- No incremental parse: Preview and Live re-run the whole markdown parser
+  after a structural edit.
+- The find bar highlights hits on rows (Source rows, rendered text), not
+  source ranges inside a rendered block.
+
 ## Part 4. How the viewer is built (0.2, kept; 0.3 notes at the end of each part)
 
 tui-markdown reads markdown, lays it out for a width, and lets you move around

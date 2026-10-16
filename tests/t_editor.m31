@@ -1,0 +1,328 @@
+// Unit tests for editing in the viewer: panes, typing, selection with the
+// mouse, undo, saving, the palette, find and replace, Live's source block.
+// No terminal: keys are typed by name and the buffer and layout read back.
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_keys;
+import MDV_model;
+import MDV_viewer;
+import term;
+import tui.app.TUI_app;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.same(str name, str got, str want) {
+    if (got == want) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": got [" + got.split("\n").join("\\n") + "] want [" + want.split("\n").join("\\n") + "]");
+    }
+}
+
+void Tally.check(str name, bool is_true) {
+    same(name, str(is_true), "true");
+}
+
+void Tally.number(str name, int got, int want) {
+    same(name, str(got), str(want));
+}
+
+/// Type each character of `text` as a key (a `\n` is Enter).
+void typed(MDV_viewer.Viewer viewer, str text) {
+    for (int value in text.chars()) {
+        if (value == '\n') {
+            TUI_app.Action ignored = viewer.key(MDV_keys.key_of("enter"));
+        } else {
+            TUI_app.Action ignored = viewer.key(term.Key(term.Code.Char(value), 0));
+        }
+    }
+}
+
+void press(MDV_viewer.Viewer viewer, str name) {
+    TUI_app.Action ignored = viewer.key(MDV_keys.key_of(name));
+}
+
+MDV_viewer.Viewer fresh(str text, int columns, int rows) {
+    return MDV_viewer.open([], "doc.md", text, columns, rows);
+}
+
+str first_request(MDV_viewer.Viewer viewer) {
+    List<MDV_viewer.Request> all = viewer.drain();
+    if (all.size() == 0) {
+        return "none";
+    }
+    match (all[0]) {
+        case Reload: {
+            return "reload";
+        }
+        case Open(str path): {
+            return "open " + path;
+        }
+        case Copy(str text): {
+            return "copy " + text;
+        }
+        case OpenUrl(str url): {
+            return "url " + url;
+        }
+        case Save(str path, str saved_text): {
+            return "save " + path + " " + saved_text;
+        }
+        case Paste: {
+            return "paste";
+        }
+    }
+}
+
+term.Mouse mouse(term.MouseKind kind, int col, int row) {
+    return term.Mouse(kind, col, row, 0);
+}
+
+Tally tally = Tally();
+// --- panes ------------------------------------------------------------------------------------
+MDV_viewer.Viewer viewer = fresh("# Title\n\nSome *text* here.\n\n- one\n- two\n", 80, 24);
+tally.same("a viewer starts in Preview", MDV_viewer.pane_name(viewer.pane), "Preview");
+tally.same("Preview has one row above the text", str(viewer.top_rows()), "1");
+press(viewer, "alt-s");
+tally.same("Alt-S shows the source", MDV_viewer.pane_name(viewer.pane), "Source");
+tally.same("the toolbar adds a row", str(viewer.top_rows()), "2");
+tally.same("a source row is the line as written", viewer.layout.rows[2].plain(), "Some *text* here.");
+tally.same("and knows its line", str(viewer.layout.rows[2].line), "3");
+press(viewer, "alt-l");
+tally.same("Alt-L shows Live", MDV_viewer.pane_name(viewer.pane), "Live");
+press(viewer, "alt-p");
+tally.same("Alt-P goes back to Preview", MDV_viewer.pane_name(viewer.pane), "Preview");
+press(viewer, "f2");
+tally.same("F2 cycles to Live", MDV_viewer.pane_name(viewer.pane), "Live");
+press(viewer, "f2");
+tally.same("then Source", MDV_viewer.pane_name(viewer.pane), "Source");
+press(viewer, "f2");
+tally.same("then Preview", MDV_viewer.pane_name(viewer.pane), "Preview");
+typed(viewer, "e");
+tally.same("e starts editing in Live", MDV_viewer.pane_name(viewer.pane), "Live");
+// --- typing in Source ------------------------------------------------------------------------------
+viewer = fresh("hello\n", 80, 24);
+press(viewer, "alt-s");
+press(viewer, "ctrl-end");
+typed(viewer, " world");
+tally.same("typing goes into the buffer", viewer.buffer.text(), "hello world\n");
+tally.check("and marks it dirty", viewer.buffer.is_dirty());
+tally.same("the layout shows it", viewer.layout.rows[0].plain(), "hello world");
+press(viewer, "ctrl-z");
+tally.same("Ctrl-Z undoes the run of typing", viewer.buffer.text(), "hello\n");
+tally.check("and the text is clean again", !viewer.buffer.is_dirty());
+press(viewer, "ctrl-y");
+tally.same("Ctrl-Y redoes it", viewer.buffer.text(), "hello world\n");
+press(viewer, "ctrl-s");
+tally.same("Ctrl-S asks for a save", first_request(viewer), "save doc.md hello world\n");
+viewer.saved("doc.md");
+tally.check("a save makes it clean", !viewer.buffer.is_dirty());
+tally.same("and says so", viewer.message, "saved doc.md");
+// --- markdown assists through the keys -------------------------------------------------------------------
+viewer = fresh("", 80, 24);
+press(viewer, "alt-s");
+typed(viewer, "- a\nb\nc");
+tally.same("Enter continues a list, twice", viewer.buffer.text(), "- a\n- b\n- c\n");
+press(viewer, "tab");
+tally.same("Tab nests the item", viewer.buffer.text(), "- a\n- b\n  - c\n");
+press(viewer, "shift-tab");
+tally.same("Shift-Tab un-nests it", viewer.buffer.text(), "- a\n- b\n- c\n");
+typed(viewer, "\n\n");
+tally.same("Enter on an empty item ends the list", viewer.buffer.text(), "- a\n- b\n- c\n\n");
+press(viewer, "ctrl-a");
+tally.same("Ctrl-A selects everything", viewer.buffer.selected_text(), "- a\n- b\n- c\n");
+press(viewer, "right");
+typed(viewer, "x");
+press(viewer, "ctrl-b");
+tally.same("Ctrl-B bolds the word", viewer.buffer.lines[viewer.buffer.lines.size() - 1], "**x**");
+viewer = fresh("a b\n", 80, 24);
+press(viewer, "alt-s");
+press(viewer, "shift-right");
+press(viewer, "shift-right");
+press(viewer, "shift-right");
+tally.same("Shift-Right selects", viewer.buffer.selected_text(), "a b");
+typed(viewer, "(");
+tally.same("( wraps a selection", viewer.buffer.text(), "(a b)\n");
+press(viewer, "alt-2");
+tally.same("Alt-2 makes a heading", viewer.buffer.lines[0], "## (a b)");
+press(viewer, "ctrl-k");
+tally.check("Ctrl-K makes a link", viewer.buffer.lines[0].contains("](url)"));
+// --- Live ----------------------------------------------------------------------------------------------------
+viewer = fresh("# Title\n\nSome *text* here.\n\nlast one\n", 80, 24);
+press(viewer, "alt-l");
+tally.same("Live starts with the caret at the top, so the heading is source", viewer.layout.rows[0].plain().trim(), "# Title");
+tally.check("the other blocks are rendered (no markup)", has_row_with(viewer, "Some text here."));
+tally.check("and not as source", !has_row_with(viewer, "Some *text* here."));
+press(viewer, "down");
+press(viewer, "down");
+tally.check("moving into a block turns it into source", has_row_with(viewer, "Some *text* here."));
+tally.check("and the heading is rendered now", !has_row_with(viewer, "# Title") && has_row_with(viewer, "Title"));
+tally.same("a click on a rendered row puts the caret in its block", clicked_line(viewer, "last one"), "5");
+// --- the mouse ------------------------------------------------------------------------------------------------
+viewer = fresh("hello world\nsecond line\n", 80, 24);
+press(viewer, "alt-s");
+int left = viewer.left();
+viewer.click_count = 1;
+TUI_app.Action ignored_action = viewer.mouse(mouse(term.MouseKind.Down(0), left + 7, 3));
+tally.same("a click places the caret", viewer.buffer.caret.to_str(), "0:6");
+ignored_action = viewer.mouse(mouse(term.MouseKind.Drag(0), left + 10, 3));
+ignored_action = viewer.mouse(mouse(term.MouseKind.Up(0), left + 10, 3));
+tally.same("a drag selects", viewer.buffer.selected_text(), "wor");
+viewer.click_count = 2;
+ignored_action = viewer.mouse(mouse(term.MouseKind.Down(0), left + 2, 3));
+ignored_action = viewer.mouse(mouse(term.MouseKind.Up(0), left + 2, 3));
+tally.same("a double click selects the word", viewer.buffer.selected_text(), "hello");
+viewer.click_count = 3;
+ignored_action = viewer.mouse(mouse(term.MouseKind.Down(0), left + 2, 4));
+ignored_action = viewer.mouse(mouse(term.MouseKind.Up(0), left + 2, 4));
+tally.same("a triple click selects the line", viewer.buffer.selected_text(), "second line");
+// --- find and replace --------------------------------------------------------------------------------------------
+viewer = fresh("one two one\nthree one\n", 80, 24);
+press(viewer, "alt-s");
+press(viewer, "ctrl-f");
+tally.same("Ctrl-F opens the find bar", pane_mode(viewer), "find");
+typed(viewer, "one");
+tally.number("the matches are found", viewer.finder.matches.size(), 3);
+tally.same("the first is selected", viewer.buffer.selected_text(), "one");
+tally.same("and is at the start", viewer.buffer.sel_start().to_str(), "0:0");
+press(viewer, "enter");
+tally.same("Enter goes to the next", viewer.buffer.sel_start().to_str(), "0:8");
+press(viewer, "enter");
+tally.same("and the one after", viewer.buffer.sel_start().to_str(), "1:6");
+press(viewer, "enter");
+tally.same("then wraps", viewer.buffer.sel_start().to_str(), "0:0");
+press(viewer, "up");
+tally.same("Up goes back, wrapping", viewer.buffer.sel_start().to_str(), "1:6");
+press(viewer, "ctrl-r");
+typed(viewer, "1");
+tally.same("Ctrl-R adds the replace row, which takes the keys", viewer.finder.replacement, "1");
+press(viewer, "enter");
+tally.same("Enter replaces the current match", viewer.buffer.lines[1], "three 1");
+press(viewer, "alt-a");
+tally.same("Alt-A replaces the rest", viewer.buffer.text(), "1 two 1\nthree 1\n");
+press(viewer, "esc");
+press(viewer, "ctrl-z");
+tally.same("replace all is one undo step", viewer.buffer.text(), "one two one\nthree 1\n");
+viewer = fresh("Alpha alpha ALPHA\n", 80, 24);
+press(viewer, "alt-s");
+press(viewer, "ctrl-f");
+typed(viewer, "alpha");
+tally.number("smart case: lower case matches any case", viewer.finder.matches.size(), 3);
+press(viewer, "alt-c");
+tally.number("Alt-C makes it exact", viewer.finder.matches.size(), 1);
+// --- the palette -----------------------------------------------------------------------------------------------------
+viewer = fresh("text\n", 80, 24);
+press(viewer, "ctrl-p");
+tally.same("Ctrl-P opens the palette", pane_mode(viewer), "palette");
+typed(viewer, "source");
+tally.check("typing filters the list", viewer.palette_items().size() >= 1 && viewer.palette_items()[0].title == "View: Source");
+press(viewer, "enter");
+tally.same("Enter runs the action", MDV_viewer.pane_name(viewer.pane), "Source");
+press(viewer, "f1");
+typed(viewer, "theme tokyo");
+press(viewer, "enter");
+tally.same("a theme can be chosen from the palette", viewer.new_theme, "tokyonight");
+press(viewer, "ctrl-p");
+press(viewer, "esc");
+tally.same("Esc closes it", pane_mode(viewer), "normal");
+// --- quitting and prompts ---------------------------------------------------------------------------------------------
+viewer = fresh("text\n", 80, 24);
+press(viewer, "alt-s");
+typed(viewer, "x");
+TUI_app.Action quit = viewer.key(MDV_keys.key_of("ctrl-q"));
+tally.same("quitting with unsaved changes asks", pane_mode(viewer), "prompt");
+press(viewer, "esc");
+tally.same("Esc stays", pane_mode(viewer), "normal");
+quit = viewer.key(MDV_keys.key_of("ctrl-q"));
+press(viewer, "s");
+tally.same("S saves first", first_request(viewer), "save doc.md xtext\n");
+viewer.saved("doc.md");
+tally.check("and then the quit goes through", viewer.should_quit);
+viewer = fresh("text\n", 80, 24);
+tally.same("a clean viewer quits at once", quit_name(viewer.key(MDV_keys.key_of("ctrl-q"))), "quit");
+viewer = MDV_viewer.open([], "<stdin>", "text\n", 80, 24);
+press(viewer, "ctrl-s");
+tally.same("saving standard input asks for a name", pane_mode(viewer), "prompt");
+typed(viewer, "out.md");
+press(viewer, "enter");
+tally.same("and then saves under it", first_request(viewer), "save out.md text\n");
+viewer = fresh("text\n", 80, 24);
+press(viewer, "alt-s");
+typed(viewer, "x");
+viewer.disk_changed();
+tally.same("a change on disk under edits asks", pane_mode(viewer), "prompt");
+press(viewer, "k");
+tally.check("keeping mine keeps the text", viewer.buffer.text() == "xtext\n");
+// --- checkboxes -----------------------------------------------------------------------------------------------------------
+viewer = fresh("- [ ] a\n- [x] b\n", 80, 24);
+viewer.toggle_task(1);
+tally.same("a task is ticked", viewer.buffer.lines[0], "- [x] a");
+viewer.toggle_task(2);
+tally.same("and unticked", viewer.buffer.lines[1], "- [ ] b");
+tally.check("and the preview shows it", has_row_with(viewer, "\u{2611} a"));
+press(viewer, "ctrl-z");
+tally.same("a toggle can be undone (in Preview too)", viewer.buffer.lines[1], "- [x] b");
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");
+
+bool has_row_with(MDV_viewer.Viewer shown, str needle) {
+    for (MDV_model.Row row in shown.layout.rows) {
+        if (row.plain().contains(needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+str clicked_line(MDV_viewer.Viewer shown, str needle) {
+    for (int index in 0 .. shown.layout.rows.size()) {
+        if (shown.layout.rows[index].plain().contains(needle)) {
+            return str(shown.layout.rows[index].line);
+        }
+    }
+    return "none";
+}
+
+str pane_mode(MDV_viewer.Viewer shown) {
+    match (shown.mode) {
+        case Normal: {
+            return "normal";
+        }
+        case Search: {
+            return "search";
+        }
+        case Outline: {
+            return "outline";
+        }
+        case Help: {
+            return "help";
+        }
+        case Find: {
+            return "find";
+        }
+        case Palette: {
+            return "palette";
+        }
+        case Prompt: {
+            return "prompt";
+        }
+    }
+}
+
+str quit_name(TUI_app.Action action) {
+    match (action) {
+        case Quit: {
+            return "quit";
+        }
+        case Redraw: {
+            return "redraw";
+        }
+        case Continue: {
+            return "continue";
+        }
+    }
+}

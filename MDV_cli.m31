@@ -31,6 +31,9 @@ args.Parser parser() {
     cli.flag("zebra", help: "shade alternate table rows");
     cli.flag("numbers", help: "line numbers in code blocks");
     cli.flag("side", help: "open with the outline sidebar");
+    cli.value("mode", help: "start in preview, source or live (default preview)", placeholder: "PANE");
+    cli.flag("edit", help: "start in live mode (same as --mode live)");
+    cli.flag("smart", help: "smart typography while typing: curly quotes, en dashes, ellipses");
     cli.flag("no-watch", help: "do not reload when the file changes");
     cli.tail("files", help: "markdown files; with none, standard input", placeholder: "FILE");
     return cli;
@@ -180,6 +183,8 @@ type Look {
     bool is_dump;
     bool is_zebra;
     bool has_numbers;
+    bool is_smart = false;
+    str pane = "preview";
 }
 
 /// The text column for a page `width` wide, as the viewer picks it.
@@ -246,6 +251,12 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
             viewer.is_side_open = is_side;
             viewer.resize(size.columns, size.rows);
             viewer.relayout();
+            viewer.is_smart = look.is_smart;
+            if (look.pane == "source") {
+                viewer.set_pane(MDV_viewer.Pane.Source);
+            } else if (look.pane == "live") {
+                viewer.set_pane(MDV_viewer.Pane.Live);
+            }
             MDV_app.App app = MDV_app.open(viewer, look.theme, look.caps);
             app.is_watching = is_watching;
             TUI_app.Loop loop = TUI_app.Loop(depth: look.caps.depth);
@@ -295,6 +306,17 @@ pub int run(List<str> argv) {
             bool is_dump = given.is_flag_set("dump");
             bool is_interactive = !is_dump && !given.is_flag_set("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
             Look look = Look(pick_theme(given), pick_caps(given, is_interactive), given.integer("width").or(0), given.integer("max-width").or(MDV_viewer.MAX_TEXT_WIDTH), is_dump, given.is_flag_set("zebra"), given.is_flag_set("numbers"));
+            look.is_smart = given.is_flag_set("smart");
+            if (given.is_flag_set("edit")) {
+                look.pane = "live";
+            }
+            match (given.value("mode")) {
+                case Some(str wanted): {
+                    look.pane = wanted.to_lower();
+                }
+                case None: {
+                }
+            }
             if (!is_interactive) {
                 if (look.width < 1) {
                     look.width = DEFAULT_CAT_WIDTH;

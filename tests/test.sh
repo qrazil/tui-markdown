@@ -8,6 +8,8 @@
 #
 #   house style    m31c fmt --check, m31c lint
 #   viewer         tests/t_viewer.m31, the state machine with no terminal
+#   editing        tests/t_edit.m31 (buffer, undo, list/table/pair assists) and
+#                  tests/t_editor.m31 (panes, typing, mouse, find, palette, save)
 #   oracle         what the layout shows against the text of term-markdown's
 #                  own HTML, for tests/oracle_cases.txt, at two widths
 #   goldens        `--cat --theme plain` (and one styled) output, byte for byte
@@ -117,6 +119,17 @@ note "tui-markdown builds"
 if build t_viewer; then
     "$WORK/t_viewer" >"$WORK/t_viewer.out" 2>&1
     tally "viewer state machine" "$WORK/t_viewer.out"
+fi
+
+# --- editing: the buffer, the markdown assists, and the editor in the viewer ----------
+
+if build t_edit; then
+    "$WORK/t_edit" >"$WORK/t_edit.out" 2>&1
+    tally "editing core and markdown assists" "$WORK/t_edit.out"
+fi
+if build t_editor; then
+    "$WORK/t_editor" >"$WORK/t_editor.out" 2>&1
+    tally "editor state machine" "$WORK/t_editor.out"
 fi
 
 # --- visible text against term-markdown's HTML ---------------------------------------

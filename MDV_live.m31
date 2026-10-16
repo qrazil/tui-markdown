@@ -1,0 +1,367 @@
+// Layouts for editing: Source (every line of the file as it is) and Live
+// (the block with the caret as source, every other block rendered).
+//
+// Both produce an ordinary `MDV_model.Layout`, so scrolling, search, the
+// outline and the mouse work on them as they do in Preview. A source row has
+// the `RAW` style bit on its text, `Row.line` is its 1-based source line and
+// `Row.col` the byte offset of its text in that line, which is all the screen
+// needs to draw the caret and the selection and the mouse needs to place the
+// caret.
+//
+// Live follows Obsidian's live preview, at the grain of a block: a block is a
+// paragraph, a heading, a whole list, a table, a code fence. Rendered blocks
+// are laid out once per document and width and kept in a `LiveCache`; moving
+// the caret only changes which block is written as source.
+
+import MDV_layout;
+import MDV_model;
+import MDV_prepare;
+import tui.core.TUI_text;
+
+const int MIN_WIDTH = 4;
+
+/// Where each wrapped piece of `text` starts, as byte offsets; the first is 0.
+/// Breaks go after a space when there is one in reach.
+pub List<int> wrap_starts(str text, int width) {
+    List<int> starts = [0];
+    int room = width;
+    if (room < MIN_WIDTH) {
+        room = MIN_WIDTH;
+    }
+    int offset = 0;
+    while (offset < text.size()) {
+        str rest = text.substr(offset, text.size());
+        if (TUI_text.width(rest) <= room) {
+            break;
+        }
+        str fits = TUI_text.cut(rest, room);
+        if (fits.size() == 0) {
+            fits = TUI_text.cut(rest, 2);
+            if (fits.size() == 0) {
+                break;
+            }
+        }
+        int take = fits.size();
+        // Prefer to end the piece after a space.
+        int back = take;
+        while (back > 0 && fits.byte_at(back - 1) != ' ') {
+            back = back - 1;
+        }
+        if (back > 0 && back < take && back > take / 3) {
+            take = back;
+        }
+        offset = offset + take;
+        starts.push(offset);
+    }
+    return starts;
+}
+
+/// The rows of one source line `index` (0-based), wrapped to `width` unless
+/// `width` is 0.
+List<MDV_model.Row> source_rows(str text, int index, int width, int block) {
+    List<int> starts = [0];
+    if (width > 0) {
+        starts = wrap_starts(text, width);
+    }
+    List<MDV_model.Row> out = [];
+    for (int piece in 0 .. starts.size()) {
+        int stop = text.size();
+        if (piece + 1 < starts.size()) {
+            stop = starts[piece + 1];
+        }
+        MDV_model.Span span = MDV_model.Span(text.substr(starts[piece], stop), style: MDV_model.RAW);
+        out.push(MDV_model.Row([span], line: index + 1, block: block, col: starts[piece]));
+    }
+    return out;
+}
+
+/// Is `line` a fence?
+bool is_fence(str line) {
+    str trimmed = line.trim();
+    return trimmed.starts_with("```") || trimmed.starts_with("~~~");
+}
+
+/// The ATX headings of `lines` (outside fences) with their rows found in
+/// `rows` by source line.
+pub List<MDV_model.Heading> scan_headings(List<str> lines, List<MDV_model.Row> rows) {
+    List<MDV_model.Heading> out = [];
+    Map<str, int> slugs = {};
+    bool is_fenced = false;
+    for (int index in 0 .. lines.size()) {
+        str line = lines[index];
+        if (is_fence(line)) {
+            is_fenced = !is_fenced;
+            continue;
+        }
+        if (is_fenced || !line.starts_with("#")) {
+            continue;
+        }
+        int marks = 0;
+        while (marks < line.size() && line.byte_at(marks) == '#') {
+            marks = marks + 1;
+        }
+        if (marks > 6 || (marks < line.size() && line.byte_at(marks) != ' ')) {
+            continue;
+        }
+        str title = line.substr(marks, line.size()).trim();
+        while (title.ends_with("#")) {
+            title = title.substr(0, title.size() - 1);
+        }
+        title = title.trim();
+        str base = MDV_prepare.slugify(title);
+        str slug = base;
+        match (slugs.get(base)) {
+            case Some(int seen): {
+                slug = base + "-" + str(seen);
+                slugs.set(base, seen + 1);
+            }
+            case None: {
+                slugs.set(base, 1);
+            }
+        }
+        int row = 0;
+        for (int at_row in 0 .. rows.size()) {
+            if (rows[at_row].line == index + 1) {
+                row = at_row;
+                break;
+            }
+        }
+        out.push(MDV_model.Heading(marks, title, slug, row, index + 1));
+    }
+    return out;
+}
+
+/// All of `lines` as source, wrapped to `width` (0 for no wrapping).
+pub MDV_model.Layout source_layout(List<str> lines, int width) {
+    List<MDV_model.Row> rows = [];
+    for (int index in 0 .. lines.size()) {
+        for (MDV_model.Row row in source_rows(lines[index], index, width, index)) {
+            rows.push(row);
+        }
+    }
+    List<MDV_model.Heading> heads = scan_headings(lines, rows);
+    return MDV_model.Layout(rows, heads, [], width, lines);
+}
+
+// --- live ------------------------------------------------------------------------------------
+
+/// The source line (1-based) a block starts on, 0 when it has none.
+pub int first_line_of(MDV_model.Block block) {
+    match (block) {
+        case Para(MDV_model.Text text): {
+            return text.line;
+        }
+        case Head(MDV_model.HeadingBlock head): {
+            return head.line;
+        }
+        case Code(MDV_model.CodeBlock code): {
+            return code.line;
+        }
+        case Table(MDV_model.Grid grid): {
+            return grid.line;
+        }
+        case Rule(int rule_line): {
+            return rule_line;
+        }
+        case Callout(MDV_model.CalloutBlock callout): {
+            return callout.line;
+        }
+        case Meta(MDV_model.MetaBlock meta): {
+            return meta.line;
+        }
+        case Notes(MDV_model.NoteBlock notes): {
+            return 0;
+        }
+        case Quote(List<MDV_model.Block> kids): {
+            for (MDV_model.Block kid in kids) {
+                int found = first_line_of(kid);
+                if (found > 0) {
+                    return found;
+                }
+            }
+            return 0;
+        }
+        case Items(MDV_model.ListBlock list): {
+            for (MDV_model.ListItem item in list.items) {
+                for (MDV_model.Block kid in item.kids) {
+                    int found = first_line_of(kid);
+                    if (found > 0) {
+                        return found;
+                    }
+                }
+            }
+            return 0;
+        }
+    }
+}
+
+/// Everything about a document that Live needs and the caret does not change.
+pub type LiveCache {
+    /// The document revision this was built for, and the width.
+    pub int serial = -1;
+    pub int width = -1;
+    /// Per block: first and last source line (0-based), and its rendered rows.
+    pub List<int> firsts = [];
+    pub List<int> lasts = [];
+    pub List<List<MDV_model.Row>> parts = [];
+    /// The kind of layout the parts were made with (scaled headings).
+    pub bool is_scaled = false;
+    pub bool is_zebra = false;
+    pub bool has_numbers = false;
+}
+
+bool is_blank(str line) {
+    return line.trim().size() == 0;
+}
+
+/// Work out the blocks' line ranges and lay each out.
+pub void build_cache(LiveCache cache, MDV_model.Document doc, List<str> lines, MDV_layout.Options options, int serial) {
+    cache.serial = serial;
+    cache.width = options.width;
+    cache.is_scaled = options.is_scaled;
+    cache.is_zebra = options.is_zebra;
+    cache.has_numbers = options.has_numbers;
+    cache.firsts = [];
+    cache.lasts = [];
+    cache.parts = [];
+    List<int> starts = [];
+    List<MDV_model.Block> kept = [];
+    int floor = 0;
+    for (MDV_model.Block block in doc.blocks) {
+        int line = first_line_of(block);
+        if (line <= 0) {
+            continue;
+        }
+        int zero = line - 1;
+        if (zero < floor) {
+            zero = floor;
+        }
+        if (zero >= lines.size()) {
+            continue;
+        }
+        starts.push(zero);
+        kept.push(block);
+        floor = zero + 1;
+    }
+    for (int index in 0 .. kept.size()) {
+        int stop = lines.size() - 1;
+        if (index + 1 < kept.size()) {
+            stop = starts[index + 1] - 1;
+        }
+        while (stop > starts[index] && is_blank(lines[stop])) {
+            stop = stop - 1;
+        }
+        cache.firsts.push(starts[index]);
+        cache.lasts.push(stop);
+        MDV_model.Document single = MDV_model.Document([kept[index]], doc.links, line_count: doc.line_count);
+        MDV_model.Layout part = MDV_layout.layout_with(single, options);
+        cache.parts.push(part.rows);
+    }
+}
+
+/// The index of the block whose lines include `line` (0-based), -1 for none.
+pub int block_at(LiveCache cache, int line) {
+    for (int index in 0 .. cache.firsts.size()) {
+        if (line >= cache.firsts[index] && line <= cache.lasts[index]) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/// Is the last row pushed blank (or are there none)?
+bool is_blank_end(List<MDV_model.Row> rows) {
+    if (rows.size() == 0) {
+        return true;
+    }
+    for (MDV_model.Span span in rows[rows.size() - 1].spans) {
+        if (span.text.size() > 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The Live layout: the block holding `caret_line` (0-based) as source, the
+/// rest rendered from `cache`.
+pub MDV_model.Layout live_layout(MDV_model.Document doc, List<str> lines, int caret_line, LiveCache cache, int width) {
+    List<MDV_model.Row> rows = [];
+    List<str> texts = [];
+    int next_line = 0;
+    int active = block_at(cache, caret_line);
+    for (int index in 0 .. cache.firsts.size()) {
+        // Lines between the blocks.
+        for (int gap in next_line .. cache.firsts[index]) {
+            add_gap(rows, texts, lines, gap, caret_line, width);
+        }
+        if (!is_blank_end(rows) && index != active) {
+            rows.push(MDV_model.Row([], line: cache.firsts[index]));
+        }
+        if (index == active) {
+            if (!is_blank_end(rows)) {
+                rows.push(MDV_model.Row([], line: cache.firsts[index]));
+            }
+            List<str> mine = [];
+            for (int each in cache.firsts[index] .. cache.lasts[index] + 1) {
+                mine.push(lines[each]);
+            }
+            texts.push(mine.join("\n"));
+            for (int each in cache.firsts[index] .. cache.lasts[index] + 1) {
+                for (MDV_model.Row row in source_rows(lines[each], each, width, texts.size() - 1)) {
+                    rows.push(row);
+                }
+            }
+        } else {
+            List<str> own = [];
+            for (int each in cache.firsts[index] .. cache.lasts[index] + 1) {
+                own.push(lines[each]);
+            }
+            texts.push(own.join("\n"));
+            int id = texts.size() - 1;
+            for (MDV_model.Row row in cache.parts[index]) {
+                int line = row.line;
+                if (line == 0) {
+                    line = cache.firsts[index] + 1;
+                }
+                rows.push(MDV_model.Row(row.spans, line: line, block: id, big: row.big));
+            }
+        }
+        next_line = cache.lasts[index] + 1;
+        if (!is_blank_end(rows) && next_line < lines.size() && is_blank(lines[next_line]) && next_line != caret_line) {
+            rows.push(MDV_model.Row([], line: next_line + 1));
+            next_line = next_line + 1;
+        }
+    }
+    for (int gap in next_line .. lines.size()) {
+        add_gap(rows, texts, lines, gap, caret_line, width);
+    }
+    List<MDV_model.Link> links = [];
+    for (MDV_model.Link link in doc.links) {
+        links.push(MDV_model.Link(link.href, link.title, link.label, row: -1));
+    }
+    for (int at_row in 0 .. rows.size()) {
+        for (MDV_model.Span span in rows[at_row].spans) {
+            if (span.link >= 0 && span.link < links.size() && links[span.link].row < 0) {
+                MDV_model.Link link = links[span.link];
+                links[span.link] = MDV_model.Link(link.href, link.title, link.label, row: at_row);
+            }
+        }
+    }
+    List<MDV_model.Heading> heads = scan_headings(lines, rows);
+    return MDV_model.Layout(rows, heads, links, width, texts);
+}
+
+/// A source line that no block covers: shown as source when it has text or
+/// the caret, else as one blank row.
+void add_gap(List<MDV_model.Row> rows, List<str> texts, List<str> lines, int index, int caret_line, int width) {
+    if (!is_blank(lines[index]) || index == caret_line) {
+        texts.push(lines[index]);
+        for (MDV_model.Row row in source_rows(lines[index], index, width, texts.size() - 1)) {
+            rows.push(row);
+        }
+        return;
+    }
+    if (!is_blank_end(rows)) {
+        rows.push(MDV_model.Row([], line: index + 1));
+    }
+}

@@ -317,6 +317,18 @@ pub TUI_style.Style style_for(Theme theme, int bits) {
             fore = pal.dim;
         }
     }
+    if (is_on(bits, MDV_model.RAW)) {
+        int source_class = MDV_model.syntax_of(bits);
+        if (source_class >= 0) {
+            fore = syntax_hue(pal, source_class + 0);
+            if (source_class == 1) {
+                attrs = attrs | TUI_style.ITALIC;
+            }
+            if (source_class == 11) {
+                attrs = attrs | TUI_style.BOLD;
+            }
+        }
+    }
     if (is_on(bits, MDV_model.CHIP)) {
         back = chip_bg(pal);
         fore = pal.cyan;

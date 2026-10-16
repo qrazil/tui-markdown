@@ -1,0 +1,120 @@
+// Every command the program has, by number: what the command palette lists,
+// what the toolbar buttons and the mouse ask for, and the key that does it.
+//
+// The viewer runs an action with `run_action(id)`; this module only names
+// them, so the palette, the toolbar and the help screen cannot disagree about
+// what exists or what its key is.
+
+import MDV_theme;
+
+pub const int PREVIEW = 1;
+pub const int SOURCE = 2;
+pub const int LIVE = 3;
+pub const int CYCLE_PANE = 4;
+pub const int SAVE = 10;
+pub const int SAVE_AS = 11;
+pub const int RELOAD = 12;
+pub const int QUIT = 13;
+pub const int FIND = 20;
+pub const int REPLACE = 21;
+pub const int FIND_NEXT = 22;
+pub const int FIND_PREVIOUS = 23;
+pub const int GO_TO_HEADING = 24;
+pub const int PALETTE = 25;
+pub const int SIDEBAR = 26;
+pub const int NEXT_THEME = 27;
+pub const int TOGGLE_WRAP = 28;
+pub const int TOGGLE_SMART = 29;
+pub const int TOGGLE_ZEBRA = 30;
+pub const int TOGGLE_NUMBERS = 31;
+pub const int CHOOSE_THEME = 32;
+pub const int UNDO = 40;
+pub const int REDO = 41;
+pub const int CUT = 42;
+pub const int COPY = 43;
+pub const int PASTE = 44;
+pub const int SELECT_ALL = 45;
+pub const int BOLD = 50;
+pub const int ITALIC = 51;
+pub const int STRIKE = 52;
+pub const int CODE = 53;
+pub const int LINK = 54;
+pub const int IMAGE = 55;
+pub const int HEADING_1 = 61;
+pub const int HEADING_2 = 62;
+pub const int HEADING_3 = 63;
+pub const int HEADING_4 = 64;
+pub const int HEADING_5 = 65;
+pub const int HEADING_6 = 66;
+pub const int BULLETS = 70;
+pub const int NUMBERS = 71;
+pub const int TASKS = 72;
+pub const int QUOTE = 73;
+pub const int TABLE = 74;
+pub const int CODE_BLOCK = 75;
+pub const int RULE = 76;
+pub const int ALIGN_TABLE = 77;
+pub const int HELP = 90;
+/// Themes are `THEME_BASE` plus their place in `MDV_theme.names()`.
+pub const int THEME_BASE = 200;
+
+/// One command: its number, the name the palette shows, its key.
+pub type Action {
+    pub int id;
+    pub str title;
+    pub str keys;
+}
+
+/// Every action, in the order the palette lists them.
+pub List<Action> all() {
+    List<Action> out = [Action(PREVIEW, "View: Preview", "Alt-P"), Action(SOURCE, "View: Source", "Alt-S"), Action(LIVE, "View: Live", "Alt-L"), Action(CYCLE_PANE, "View: Next mode", "F2"), Action(SAVE, "File: Save", "Ctrl-S"), Action(SAVE_AS, "File: Save As...", ""), Action(RELOAD, "File: Reload from disk", "F5"), Action(QUIT, "File: Quit", "Ctrl-Q"), Action(FIND, "Find", "Ctrl-F"), Action(REPLACE, "Replace", "Ctrl-R"), Action(FIND_NEXT, "Find: Next match", "F3"), Action(FIND_PREVIOUS, "Find: Previous match", "Shift-F3"), Action(GO_TO_HEADING, "Go to heading...", "Ctrl-G"), Action(PALETTE, "Command palette", "Ctrl-P"), Action(SIDEBAR, "View: Toggle outline sidebar", "Ctrl-\\"), Action(NEXT_THEME, "Theme: Next", "T in Preview"), Action(CHOOSE_THEME, "Theme: Choose...", ""), Action(TOGGLE_WRAP, "View: Toggle soft wrap", ""), Action(TOGGLE_SMART, "Edit: Toggle smart typography", ""), Action(TOGGLE_ZEBRA, "View: Toggle zebra table rows", ""), Action(TOGGLE_NUMBERS, "View: Toggle code line numbers", ""), Action(UNDO, "Edit: Undo", "Ctrl-Z"), Action(REDO, "Edit: Redo", "Ctrl-Y"), Action(CUT, "Edit: Cut", "Ctrl-X"), Action(COPY, "Edit: Copy", "Ctrl-C"), Action(PASTE, "Edit: Paste", "Ctrl-V"), Action(SELECT_ALL, "Edit: Select all", "Ctrl-A"), Action(BOLD, "Format: Bold", "Ctrl-B"), Action(ITALIC, "Format: Italic", "Alt-I"), Action(STRIKE, "Format: Strikethrough", "Alt-D"), Action(CODE, "Format: Inline code", "Ctrl-E"), Action(LINK, "Format: Link", "Ctrl-K"), Action(IMAGE, "Format: Image", "Alt-M"), Action(HEADING_1, "Format: Heading 1", "Alt-1"), Action(HEADING_2, "Format: Heading 2", "Alt-2"), Action(HEADING_3, "Format: Heading 3", "Alt-3"), Action(HEADING_4, "Format: Heading 4", "Alt-4"), Action(HEADING_5, "Format: Heading 5", "Alt-5"), Action(HEADING_6, "Format: Heading 6", "Alt-6"), Action(BULLETS, "Format: Bulleted list", ""), Action(NUMBERS, "Format: Numbered list", ""), Action(TASKS, "Format: Task list", ""), Action(QUOTE, "Format: Quote", ""), Action(TABLE, "Insert: Table", ""), Action(CODE_BLOCK, "Insert: Code block", ""), Action(RULE, "Insert: Horizontal rule", ""), Action(ALIGN_TABLE, "Format: Align table", ""), Action(HELP, "Help: Keys", "?")];
+    List<str> themes = MDV_theme.names();
+    for (int index in 0 .. themes.size()) {
+        out.push(Action(THEME_BASE + index, "Theme: " + themes[index], ""));
+    }
+    return out;
+}
+
+/// The actions whose title holds every word of `query` (any case), best
+/// first: a title that starts with the first word, then the others in order.
+pub List<Action> filter(str query) {
+    List<str> words = [];
+    for (str piece in query.to_lower().split(" ")) {
+        if (piece.size() > 0) {
+            words.push(piece);
+        }
+    }
+    List<Action> first = [];
+    List<Action> rest = [];
+    for (Action each in all()) {
+        str title = each.title.to_lower();
+        bool is_match = true;
+        for (str word in words) {
+            if (!title.contains(word)) {
+                is_match = false;
+            }
+        }
+        if (!is_match) {
+            continue;
+        }
+        if (words.size() > 0 && (title.starts_with(words[0]) || title.contains(": " + words[0]))) {
+            first.push(each);
+        } else {
+            rest.push(each);
+        }
+    }
+    for (Action each in rest) {
+        first.push(each);
+    }
+    return first;
+}
+
+/// The action with number `id`, if there is one.
+pub Option<Action> find(int id) {
+    for (Action each in all()) {
+        if (each.id == id) {
+            return Option<Action>.Some(each);
+        }
+    }
+    return Option<Action>.None;
+}

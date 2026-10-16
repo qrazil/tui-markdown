@@ -78,6 +78,60 @@ pub str name_of(term.Key key) {
     if (key.has_modifiers(term.ALT)) {
         prefix = prefix + "alt-";
     }
+    // A shifted letter is already the capital; shift only names the other keys.
+    if (key.has_modifiers(term.SHIFT)) {
+        match (key.code) {
+            case Char(int shifted): {
+            }
+            case BackTab: {
+            }
+            case Enter: {
+                prefix = prefix + "shift-";
+            }
+            case Tab: {
+                prefix = prefix + "shift-";
+            }
+            case Backspace: {
+                prefix = prefix + "shift-";
+            }
+            case Escape: {
+                prefix = prefix + "shift-";
+            }
+            case Up: {
+                prefix = prefix + "shift-";
+            }
+            case Down: {
+                prefix = prefix + "shift-";
+            }
+            case Right: {
+                prefix = prefix + "shift-";
+            }
+            case Left: {
+                prefix = prefix + "shift-";
+            }
+            case Home: {
+                prefix = prefix + "shift-";
+            }
+            case End: {
+                prefix = prefix + "shift-";
+            }
+            case PageUp: {
+                prefix = prefix + "shift-";
+            }
+            case PageDown: {
+                prefix = prefix + "shift-";
+            }
+            case Insert: {
+                prefix = prefix + "shift-";
+            }
+            case Delete: {
+                prefix = prefix + "shift-";
+            }
+            case F(int number_shifted): {
+                prefix = prefix + "shift-";
+            }
+        }
+    }
     return prefix + base;
 }
 
@@ -111,6 +165,19 @@ pub term.Key key_of(str name) {
     if (rest.starts_with("alt-") && rest.size() > 4) {
         mods = mods | term.ALT;
         rest = rest.substr(4, rest.size());
+    }
+    if (rest.starts_with("shift-") && rest.size() > 6) {
+        mods = mods | term.SHIFT;
+        rest = rest.substr(6, rest.size());
+    }
+    if (rest.size() >= 2 && rest.starts_with("f") && rest.parse_int().is_none()) {
+        match (rest.substr(1, rest.size()).parse_int()) {
+            case Some(int number): {
+                return term.Key(term.Code.F(number), mods);
+            }
+            case None: {
+            }
+        }
     }
     if (rest == "enter") {
         return term.Key(term.Code.Enter, mods);
@@ -153,6 +220,12 @@ pub term.Key key_of(str name) {
     }
     if (rest == "space") {
         return term.Key(term.Code.Char(' '), mods);
+    }
+    if (rest == "delete") {
+        return term.Key(term.Code.Delete, mods);
+    }
+    if (rest == "insert") {
+        return term.Key(term.Code.Insert, mods);
     }
     List<int> chars = rest.chars();
     int first = 0;

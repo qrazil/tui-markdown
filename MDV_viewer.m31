@@ -12,12 +12,18 @@
 // Rows are counted from 0; a window shows rows `top .. top + height()`; the
 // last terminal row is the status line, so `height()` is `rows - 1`.
 
+import MDV_actions;
+import MDV_assist;
+import MDV_edit;
+import MDV_find;
 import MDV_keys;
+import MDV_live;
 import MDV_layout;
 import MDV_model;
 import MDV_prepare;
 import MDV_theme;
 import term;
+import tui.core.TUI_syntax;
 import tui.core.TUI_text;
 import tui.app.TUI_app;
 import tui.widgets.TUI_outline;
@@ -32,18 +38,27 @@ pub enum Request {
     Copy(str);
     /// Hand this URL to the system's opener (`xdg-open`, `open`).
     OpenUrl(str);
+    /// Write this text to this path, then call `saved` (or `save_failed`).
+    Save(str, str);
+    /// Read the system clipboard and call `paste_text` with it.
+    Paste;
 }
 
-/// A clickable region of the header row: columns `first` up to `stop`, and
-/// what a click does (1 toggles the outline sidebar, 2 changes the theme).
+/// What the window shows: the rendered page, the raw markdown, or the page
+/// with the block under the caret as raw markdown.
+pub enum Pane {
+    Preview;
+    Source;
+    Live;
+}
+
+/// A clickable region of the header or toolbar: columns `first` up to
+/// `stop`, and the action a click runs (see `MDV_actions`).
 pub type Button {
     pub int first;
     pub int stop;
     pub int action;
 }
-
-pub const int BUTTON_SIDE = 1;
-pub const int BUTTON_THEME = 2;
 
 /// What the keys mean at the moment.
 pub enum Mode {
@@ -54,6 +69,12 @@ pub enum Mode {
     Outline;
     /// The key help popup.
     Help;
+    /// The find (and replace) bar.
+    Find;
+    /// The command palette.
+    Palette;
+    /// A question or a name asked on the status line (see `prompt_kind`).
+    Prompt;
 }
 
 /// A place to come back to: which file, which block, how far into it.
@@ -83,7 +104,7 @@ pub type Viewer {
     pub List<str> files;
     /// The path being shown ("<stdin>" when there is none).
     pub str name;
-    pub str source;
+    pub MDV_edit.Buffer buffer;
     pub MDV_model.Document doc;
     pub MDV_model.Layout layout;
     pub int columns;
@@ -133,14 +154,152 @@ pub type Viewer {
     pub str new_theme = "";
     /// First heading shown in the sidebar.
     pub int side_top = 0;
+    pub Pane pane = Pane.Preview;
+    pub MDV_find.Finder finder = MDV_find.Finder();
+    pub MDV_live.LiveCache live = MDV_live.LiveCache();
+    /// Which block Live drew as source, -1 for none.
+    pub int live_active = -1;
+    /// Bumped whenever `doc` is made again, so a Live cache knows.
+    pub int serial = 0;
+    /// Must `doc` be made again before the next layout?
+    pub bool is_doc_stale = false;
+    /// Has the text changed since `doc` was made, even if Live may go on
+    /// using the old one until the caret leaves its block?
+    pub bool is_doc_old = false;
+    pub bool is_smart = false;
+    /// Replace row open in the find bar, and which field has the keys.
+    pub bool is_replace = false;
+    pub bool is_replace_focused = false;
+    /// 1, 2 or 3 for single, double and triple click (set by the program).
+    pub int click_count = 1;
+    pub bool is_selecting = false;
+    /// What was last cut or copied here, for a paste with no system clipboard.
+    pub str clipboard = "";
+    /// What a prompt is asking ("saveas", "quit", "open", "reload", "discard"),
+    /// the text typed so far, and what to do afterwards.
+    pub str prompt_kind = "";
+    pub str prompt_text = "";
+    pub str pending_open = "";
+    pub bool should_quit = false;
+    pub bool is_quit_after_save = false;
+    /// The palette's chosen row; where the screen drew it (for clicks).
+    pub int palette_pick = 0;
+    pub int palette_y = 0;
+    pub int palette_x0 = 0;
+    pub int palette_x1 = 0;
+    pub int palette_rows = 0;
+    pub int palette_first = 0;
+    /// Toolbar buttons of the editing panes, set by the screen every frame.
+    pub List<Button> tools = [];
+    /// Highlight caches for source rows: classes and end state per line.
+    pub List<List<int>> hl_classes = [];
+    pub List<int> hl_states = [];
+    pub int hl_valid = 0;
+    pub int words_revision = -1;
+    pub int words_count = 0;
 }
 
-/// Rows of text on screen: all but the status line.
+/// Rows of text on screen: all but the header, the toolbar (editing panes),
+/// the find bar and the status line.
 pub int Viewer.height() {
-    if (rows < 3) {
+    int room = rows - top_rows() - bar_rows() - 1;
+    if (room < 1) {
         return 1;
     }
-    return rows - 2;
+    return room;
+}
+
+/// Rows above the text: the header, and the toolbar in the editing panes.
+pub int Viewer.top_rows() {
+    if (is_editing()) {
+        return 2;
+    }
+    return 1;
+}
+
+/// Rows the find bar takes between the text and the status line.
+pub int Viewer.bar_rows() {
+    match (mode) {
+        case Find: {
+            if (is_replace) {
+                return 2;
+            }
+            return 1;
+        }
+        case Normal: {
+            return 0;
+        }
+        case Search: {
+            return 0;
+        }
+        case Outline: {
+            return 0;
+        }
+        case Help: {
+            return 0;
+        }
+        case Palette: {
+            return 0;
+        }
+        case Prompt: {
+            return 0;
+        }
+    }
+}
+
+/// Are the keys going to the text (no bar, popup or question open)?
+pub bool Viewer.is_plain_mode() {
+    match (mode) {
+        case Normal: {
+            return true;
+        }
+        case Search: {
+            return false;
+        }
+        case Outline: {
+            return false;
+        }
+        case Help: {
+            return false;
+        }
+        case Find: {
+            return false;
+        }
+        case Palette: {
+            return false;
+        }
+        case Prompt: {
+            return false;
+        }
+    }
+}
+
+pub bool Viewer.is_live() {
+    match (pane) {
+        case Live: {
+            return true;
+        }
+        case Preview: {
+            return false;
+        }
+        case Source: {
+            return false;
+        }
+    }
+}
+
+pub bool Viewer.is_editing() {
+    match (pane) {
+        case Preview: {
+            return false;
+        }
+        case Source: {
+            return true;
+        }
+        case Live: {
+            return true;
+        }
+    }
 }
 
 /// Columns of the sidebar (0 when it is closed or the window too narrow).
@@ -178,9 +337,41 @@ pub int Viewer.left() {
     return side + spare / 2;
 }
 
-/// The layout of `doc` for the window as it is.
+/// Make `doc` from the buffer again if the text has changed since.
+void Viewer.ensure_doc() {
+    if (is_doc_stale) {
+        doc = MDV_prepare.prepare(buffer.text());
+        serial = serial + 1;
+        is_doc_stale = false;
+        is_doc_old = false;
+    }
+}
+
+MDV_layout.Options Viewer.options() {
+    return MDV_layout.Options(text_width(), is_scaled: is_scaled, is_zebra: is_zebra, has_numbers: has_numbers);
+}
+
+/// The layout for the window and the pane as they are.
 MDV_model.Layout Viewer.build_layout() {
-    return MDV_layout.layout_with(doc, MDV_layout.Options(text_width(), is_scaled: is_scaled, is_zebra: is_zebra, has_numbers: has_numbers));
+    match (pane) {
+        case Preview: {
+            ensure_doc();
+            return MDV_layout.layout_with(doc, options());
+        }
+        case Source: {
+            live_active = -1;
+            return MDV_live.source_layout(buffer.lines, text_width());
+        }
+        case Live: {
+            ensure_doc();
+            MDV_layout.Options wanted = options();
+            if (live.serial != serial || live.width != wanted.width || live.is_scaled != wanted.is_scaled || live.is_zebra != wanted.is_zebra || live.has_numbers != wanted.has_numbers) {
+                MDV_live.build_cache(live, doc, buffer.lines, wanted, serial);
+            }
+            live_active = MDV_live.block_at(live, buffer.caret.row);
+            return MDV_live.live_layout(doc, buffer.lines, buffer.caret.row, live, wanted.width);
+        }
+    }
 }
 
 /// Columns the text gets: the window less the sidebar, the scrollbar and the
@@ -305,8 +496,11 @@ pub void Viewer.resize(int new_columns, int new_rows) {
 /// link asked for).
 pub void Viewer.load(str path, str text) {
     name = path;
-    source = text;
+    buffer = MDV_edit.Buffer.of(text);
     doc = MDV_prepare.prepare(text);
+    serial = serial + 1;
+    is_doc_stale = false;
+    hl_valid = 0;
     layout = build_layout();
     top = 0;
     link = -1;
@@ -344,8 +538,13 @@ pub void Viewer.load_failed(str why) {
 pub void Viewer.refresh(str text) {
     int line = line_here();
     int old_link = link;
-    source = text;
+    MDV_edit.Pos old_caret = buffer.caret;
+    buffer = MDV_edit.Buffer.of(text);
+    buffer.caret = buffer.clamp(old_caret);
     doc = MDV_prepare.prepare(text);
+    serial = serial + 1;
+    is_doc_stale = false;
+    hl_valid = 0;
     layout = build_layout();
     scroll_to(layout.row_of_line(line));
     if (old_link < layout.links.size()) {
@@ -372,7 +571,7 @@ void Viewer.find_hits() {
     if (needle.size() == 0) {
         return;
     }
-    bool is_exact = has_upper(needle);
+    bool is_exact = has_upper(needle) || finder.is_exact;
     str wanted = needle;
     if (!is_exact) {
         wanted = needle.to_lower();
@@ -572,7 +771,7 @@ void Viewer.follow(str href) {
     }
     push_here();
     pending_anchor = fragment;
-    requests.push(Request.Open(target));
+    ask_open(target);
 }
 
 void Viewer.go_back() {
@@ -586,7 +785,7 @@ void Viewer.go_back() {
         return;
     }
     pending_place = [place];
-    requests.push(Request.Open(place.name));
+    ask_open(place.name);
 }
 
 void Viewer.open_outline() {
@@ -636,6 +835,11 @@ TUI_app.Action Viewer.outline_key(str key_name) {
                     case Some(int index): {
                         back.push(place_here());
                         scroll_to(layout.headings[index].row);
+                        if (is_editing()) {
+                            buffer.place(MDV_edit.Pos(layout.headings[index].line - 1, 0), false);
+                            after(buffer.caret.row, buffer.lines.size(), false);
+                            scroll_to(layout.headings[index].row);
+                        }
                     }
                     case None: {
                     }
@@ -797,7 +1001,7 @@ void Viewer.step_file(int step) {
             }
             push_here();
             pending_anchor = "";
-            requests.push(Request.Open(files[target]));
+            ask_open(files[target]);
         }
         case None: {
             message = "not one of several files";
@@ -875,6 +1079,9 @@ TUI_app.Action Viewer.normal_key(str key_name) {
     } else if (key_name == "b") {
         toggle_side();
         count = 0;
+    } else if (key_name == "e") {
+        set_pane(Pane.Live);
+        count = 0;
     } else if (key_name == "t") {
         new_theme = "next";
         count = 0;
@@ -938,9 +1145,6 @@ pub TUI_app.Action Viewer.key(term.Key pressed) {
     message = "";
     str key_name = MDV_keys.name_of(pressed);
     match (mode) {
-        case Normal: {
-            return normal_key(key_name);
-        }
         case Search: {
             return search_key(pressed, key_name);
         }
@@ -949,6 +1153,29 @@ pub TUI_app.Action Viewer.key(term.Key pressed) {
         }
         case Help: {
             return help_key(key_name);
+        }
+        case Find: {
+            return find_key(pressed, key_name);
+        }
+        case Palette: {
+            return palette_key(pressed, key_name);
+        }
+        case Prompt: {
+            return prompt_key(pressed, key_name);
+        }
+        case Normal: {
+            Option<TUI_app.Action> global = global_key(pressed, key_name);
+            match (global) {
+                case Some(TUI_app.Action done): {
+                    return done;
+                }
+                case None: {
+                }
+            }
+            if (is_editing()) {
+                return edit_key(pressed, key_name);
+            }
+            return normal_key(key_name);
         }
     }
 }
@@ -1003,23 +1230,35 @@ pub List<str> Viewer.crumbs() {
     return out;
 }
 
-/// The link under the cell at column `x` of document row `row`, -1 for none.
-pub int Viewer.link_at(int row, int x) {
-    if (row < 0 || row >= layout.rows.size()) {
-        return -1;
+/// The span under column `x` of layout row `at_row`, if any.
+pub Option<MDV_model.Span> Viewer.span_at(int at_row, int x) {
+    if (at_row < 0 || at_row >= layout.rows.size()) {
+        return Option<MDV_model.Span>.None;
     }
     int column = left();
-    for (MDV_model.Span span in layout.rows[row].spans) {
+    for (MDV_model.Span span in layout.rows[at_row].spans) {
         int wide = TUI_text.width(span.text);
         if (x >= column && x < column + wide) {
+            return Option<MDV_model.Span>.Some(span);
+        }
+        column = column + wide;
+    }
+    return Option<MDV_model.Span>.None;
+}
+
+/// The link under the cell at column `x` of document row `row`, -1 for none.
+pub int Viewer.link_at(int at_row, int x) {
+    match (span_at(at_row, x)) {
+        case Some(MDV_model.Span span): {
             if (span.link >= 0 && span.has_bits(MDV_model.LINK)) {
                 return span.link;
             }
             return -1;
         }
-        column = column + wide;
+        case None: {
+            return -1;
+        }
     }
-    return -1;
 }
 
 void Viewer.click_link(int target) {
@@ -1038,7 +1277,7 @@ void Viewer.drag_to(int y) {
     if (track < 2 || max_top() == 0) {
         return;
     }
-    int along = y - 1;
+    int along = y - top_rows();
     if (along < 0) {
         along = 0;
     }
@@ -1048,40 +1287,118 @@ void Viewer.drag_to(int y) {
     scroll_to(along * max_top() / (track - 1));
 }
 
+/// A click on a rendered row (Preview, or a rendered block in Live): a task
+/// box ticks, a link follows when it should, anything else is for the caret.
+bool Viewer.did_click_rendered(int at_row, int x, bool is_ctrl) {
+    match (span_at(at_row, x)) {
+        case Some(MDV_model.Span span): {
+            if (span.has_bits(MDV_model.TASK) && span.has_bits(MDV_model.DECO)) {
+                toggle_task(layout.rows[at_row].line);
+                if (message.size() == 0) {
+                    message = "toggled; Ctrl-S saves";
+                }
+                return true;
+            }
+            if (span.link >= 0 && span.has_bits(MDV_model.LINK) && (!is_editing() || is_ctrl)) {
+                click_link(span.link);
+                return true;
+            }
+        }
+        case None: {
+        }
+    }
+    return false;
+}
+
+/// A left click on text row `at_row` of an editing pane.
+void Viewer.editing_click(int at_row, int x, term.Mouse report) {
+    MDV_model.Row each = layout.rows[at_row];
+    bool is_shift = (report.mods & term.SHIFT) != 0;
+    bool is_ctrl = (report.mods & term.CTRL) != 0;
+    int old_row = buffer.caret.row;
+    int old_lines = buffer.lines.size();
+    if (each.spans.size() > 0 && each.spans[0].has_bits(MDV_model.RAW)) {
+        MDV_edit.Pos spot = position_at(at_row, x);
+        if (click_count >= 3) {
+            buffer.select_line(spot);
+        } else if (click_count == 2) {
+            buffer.select_word(spot);
+        } else {
+            buffer.place(spot, is_shift);
+        }
+        is_selecting = true;
+    } else if (!did_click_rendered(at_row, x, is_ctrl)) {
+        if (each.line > 0) {
+            buffer.place(position_at(at_row, x), false);
+        }
+    }
+    after(old_row, old_lines, false);
+}
+
+/// Where a menu click lands on the palette: run the row under it, or close
+/// the palette when the click is outside the box.
+TUI_app.Action Viewer.palette_click(int x, int y) {
+    if (x < palette_x0 || x >= palette_x1) {
+        mode = Mode.Normal;
+        return TUI_app.Action.Redraw;
+    }
+    int slot = y - palette_y;
+    List<MDV_actions.Action> items = palette_items();
+    if (slot >= 0 && slot < palette_rows && palette_first + slot < items.size()) {
+        mode = Mode.Normal;
+        return run_action(items[palette_first + slot].id);
+    }
+    return TUI_app.Action.Redraw;
+}
+
 /// One mouse report (1-based `col` and `row`): the wheel scrolls, a click in
-/// the header presses a button, in the sidebar jumps to a heading, on the
-/// scrollbar moves the window, on a link follows it; motion shows the link
-/// under the pointer.
+/// the header or the toolbar presses a button, in the sidebar jumps to a
+/// heading, on the scrollbar moves the window, on text follows a link (Preview)
+/// or places the caret (the editing panes); a drag selects; motion shows the
+/// link under the pointer.
 pub TUI_app.Action Viewer.mouse(term.Mouse report) {
     int x = report.col - 1;
     int y = report.row - 1;
     message = "";
+    bool is_palette = is_palette_open();
     match (report.kind) {
         case ScrollUp: {
-            scroll_to(top - 3);
+            if (!is_palette) {
+                scroll_to(top - 3);
+            }
             return TUI_app.Action.Redraw;
         }
         case ScrollDown: {
-            scroll_to(top + 3);
+            if (!is_palette) {
+                scroll_to(top + 3);
+            }
             return TUI_app.Action.Redraw;
         }
         case Down(int button): {
             if (button != 0) {
                 return TUI_app.Action.Continue;
             }
+            if (is_palette) {
+                return palette_click(x, y);
+            }
             if (y == 0) {
                 for (Button each in buttons) {
                     if (x >= each.first && x < each.stop) {
-                        if (each.action == BUTTON_SIDE) {
-                            toggle_side();
-                        } else if (each.action == BUTTON_THEME) {
-                            new_theme = "next";
-                        }
+                        return run_action(each.action);
                     }
                 }
                 return TUI_app.Action.Redraw;
             }
-            if (y > height()) {
+            if (is_editing() && y == 1) {
+                for (Button each in tools) {
+                    if (x >= each.first && x < each.stop) {
+                        return run_action(each.action);
+                    }
+                }
+                return TUI_app.Action.Redraw;
+            }
+            int content_row = y - top_rows();
+            if (content_row < 0 || content_row >= height()) {
                 return TUI_app.Action.Redraw;
             }
             if (x == columns - 1) {
@@ -1090,16 +1407,30 @@ pub TUI_app.Action Viewer.mouse(term.Mouse report) {
                 return TUI_app.Action.Redraw;
             }
             if (x < side_width()) {
-                int index = side_top + y - 1;
+                int index = side_top + content_row;
                 if (index >= 0 && index < layout.headings.size()) {
                     back.push(place_here());
                     scroll_to(layout.headings[index].row);
+                    if (is_editing()) {
+                        buffer.place(MDV_edit.Pos(layout.headings[index].line - 1, 0), false);
+                        after(buffer.caret.row, buffer.lines.size(), false);
+                    }
                 }
                 return TUI_app.Action.Redraw;
             }
-            int target = link_at(top + y - 1, x);
-            if (target >= 0) {
-                click_link(target);
+            int at_row = top + content_row;
+            if (at_row >= layout.rows.size()) {
+                return TUI_app.Action.Redraw;
+            }
+            if (is_editing()) {
+                editing_click(at_row, x, report);
+                return TUI_app.Action.Redraw;
+            }
+            if (!did_click_rendered(at_row, x, true)) {
+                int target = link_at(at_row, x);
+                if (target >= 0) {
+                    click_link(target);
+                }
             }
             return TUI_app.Action.Redraw;
         }
@@ -1108,16 +1439,44 @@ pub TUI_app.Action Viewer.mouse(term.Mouse report) {
                 drag_to(y);
                 return TUI_app.Action.Redraw;
             }
+            if (is_selecting && is_editing()) {
+                int content_row = y - top_rows();
+                if (content_row < 0) {
+                    scroll_to(top - 1);
+                    content_row = 0;
+                } else if (content_row >= height()) {
+                    scroll_to(top + 1);
+                    content_row = height() - 1;
+                }
+                int at_row = top + content_row;
+                if (at_row >= layout.rows.size()) {
+                    at_row = layout.rows.size() - 1;
+                }
+                if (at_row >= 0 && layout.rows[at_row].line > 0) {
+                    int old_row = buffer.caret.row;
+                    int old_lines = buffer.lines.size();
+                    buffer.place(position_at(at_row, x), true);
+                    // Dragging must not align a table or change the layout
+                    // under the pointer.
+                    reveal_caret();
+                }
+                return TUI_app.Action.Redraw;
+            }
             return TUI_app.Action.Continue;
         }
         case Up(int released): {
             is_dragging = false;
+            if (is_selecting) {
+                is_selecting = false;
+                after(buffer.caret.row, buffer.lines.size(), false);
+            }
             return TUI_app.Action.Continue;
         }
         case Moved: {
             int over = -1;
-            if (y >= 1 && y <= height() && x >= side_width() && x < columns - 1) {
-                over = link_at(top + y - 1, x);
+            int content_row = y - top_rows();
+            if (content_row >= 0 && content_row < height() && x >= side_width() && x < columns - 1) {
+                over = link_at(top + content_row, x);
             }
             if (over != hover_link) {
                 hover_link = over;
@@ -1134,12 +1493,1124 @@ pub TUI_app.Action Viewer.mouse(term.Mouse report) {
     }
 }
 
+bool Viewer.is_palette_open() {
+    match (mode) {
+        case Palette: {
+            return true;
+        }
+        case Normal: {
+            return false;
+        }
+        case Search: {
+            return false;
+        }
+        case Outline: {
+            return false;
+        }
+        case Help: {
+            return false;
+        }
+        case Find: {
+            return false;
+        }
+        case Prompt: {
+            return false;
+        }
+    }
+}
+
+/// Show `target`, keeping the place: the line at the top of the window stays
+/// there, and the caret starts on it when editing begins.
+pub void Viewer.set_pane(Pane target) {
+    int line = 1;
+    match (pane) {
+        case Preview: {
+            line = line_here();
+        }
+        case Source: {
+            line = buffer.caret.row + 1;
+            if (line_here() > 0) {
+                line = line_here();
+            }
+        }
+        case Live: {
+            line = buffer.caret.row + 1;
+            if (line_here() > 0) {
+                line = line_here();
+            }
+        }
+    }
+    bool was_editing = is_editing();
+    if (is_doc_old) {
+        is_doc_stale = true;
+    }
+    pane = target;
+    mode = Mode.Normal;
+    if (is_editing() && !was_editing) {
+        buffer.caret = buffer.clamp(MDV_edit.Pos(line - 1, 0));
+        buffer.has_anchor = false;
+    }
+    if (!is_editing() && was_editing) {
+        line = buffer.caret.row + 1;
+    }
+    layout = build_layout();
+    link = -1;
+    find_hits();
+    scroll_to(layout.row_of_line(line));
+    if (is_editing()) {
+        reveal_caret();
+    }
+}
+
+/// The index of the layout row the caret is on, -1 when none shows it.
+pub int Viewer.caret_row() {
+    int wanted = buffer.caret.row + 1;
+    int found = -1;
+    for (int at_row in 0 .. layout.rows.size()) {
+        MDV_model.Row each = layout.rows[at_row];
+        if (each.line != wanted || each.spans.size() == 0 || !each.spans[0].has_bits(MDV_model.RAW)) {
+            continue;
+        }
+        int size = each.spans[0].text.size();
+        if (buffer.caret.col >= each.col && buffer.caret.col < each.col + size) {
+            return at_row;
+        }
+        found = at_row;
+    }
+    return found;
+}
+
+/// Scroll just enough to show the caret.
+pub void Viewer.reveal_caret() {
+    int at_row = caret_row();
+    if (at_row < 0) {
+        return;
+    }
+    if (at_row < top) {
+        scroll_to(at_row);
+    } else if (at_row >= top + height()) {
+        scroll_to(at_row - height() + 1);
+    }
+}
+
+/// The buffer position under column `x` of layout row `at_row`.
+pub MDV_edit.Pos Viewer.position_at(int at_row, int x) {
+    MDV_model.Row each = layout.rows[at_row];
+    if (each.line <= 0) {
+        return buffer.caret;
+    }
+    int line_index = each.line - 1;
+    if (line_index >= buffer.lines.size()) {
+        line_index = buffer.lines.size() - 1;
+    }
+    if (each.spans.size() > 0 && each.spans[0].has_bits(MDV_model.RAW)) {
+        str piece = each.spans[0].text;
+        int relative = x - left();
+        if (relative < 0) {
+            relative = 0;
+        }
+        int found = MDV_edit.col_for_width(piece, relative);
+        str whole = buffer.lines[line_index];
+        // Past the end of a wrapped piece is its last character, not the
+        // start of the next piece.
+        if (found >= piece.size() && each.col + piece.size() < whole.size() && piece.size() > 0) {
+            found = MDV_edit.previous_col(piece, found);
+        }
+        return MDV_edit.Pos(line_index, each.col + found);
+    }
+    return MDV_edit.Pos(line_index, 0);
+}
+
+/// The last source line (0-based) of the Live block that holds `line`.
+int Viewer.block_last_line(int line) {
+    int found = MDV_live.block_at(live, line);
+    if (found < 0) {
+        return line;
+    }
+    return live.lasts[found];
+}
+
+/// Move the caret by `delta` screen rows, keeping its column.
+void Viewer.move_rows(int delta, bool is_extend) {
+    buffer.seal();
+    int current = caret_row();
+    if (current < 0) {
+        current = layout.row_of_line(buffer.caret.row + 1);
+    }
+    int keep = buffer.want;
+    if (keep < 0) {
+        MDV_model.Row here = layout.rows[current];
+        keep = MDV_edit.display_col(buffer.lines[buffer.caret.row], buffer.caret.col);
+        if (here.spans.size() > 0 && here.spans[0].has_bits(MDV_model.RAW)) {
+            keep = keep - MDV_edit.display_col(buffer.lines[buffer.caret.row], here.col);
+        }
+    }
+    int target = current + delta;
+    if (target < 0) {
+        buffer.place(MDV_edit.Pos(0, 0), is_extend);
+        buffer.want = -1;
+        return;
+    }
+    if (target >= layout.rows.size()) {
+        int last = buffer.lines.size() - 1;
+        buffer.place(MDV_edit.Pos(last, buffer.lines[last].size()), is_extend);
+        buffer.want = -1;
+        return;
+    }
+    // A row with no line (a gap) is stepped over.
+    int step = 1;
+    if (delta < 0) {
+        step = -1;
+    }
+    while (target >= 0 && target < layout.rows.size() && layout.rows[target].line <= 0) {
+        target = target + step;
+    }
+    if (target < 0 || target >= layout.rows.size()) {
+        return;
+    }
+    MDV_model.Row there = layout.rows[target];
+    MDV_edit.Pos spot = MDV_edit.Pos(there.line - 1, 0);
+    if (there.spans.size() > 0 && there.spans[0].has_bits(MDV_model.RAW)) {
+        str piece = there.spans[0].text;
+        int found = MDV_edit.col_for_width(piece, keep);
+        str whole = buffer.lines[there.line - 1];
+        if (found >= piece.size() && there.col + piece.size() < whole.size() && piece.size() > 0) {
+            found = MDV_edit.previous_col(piece, found);
+        }
+        spot = MDV_edit.Pos(there.line - 1, there.col + found);
+    } else if (delta < 0) {
+        spot = MDV_edit.Pos(block_last_line(there.line - 1), 0);
+    }
+    buffer.place(spot, is_extend);
+    buffer.want = keep;
+}
+
+/// The markdown classes of every byte of source line `line_index`, found
+/// lazily and kept until a splice above it.
+pub List<int> Viewer.line_classes(int line_index) {
+    if (line_index < 0 || line_index >= buffer.lines.size()) {
+        return [];
+    }
+    while (hl_valid <= line_index && hl_valid < buffer.lines.size()) {
+        int state = 0;
+        if (hl_valid > 0) {
+            state = hl_states[hl_valid - 1];
+        }
+        TUI_syntax.Tokens tokens = TUI_syntax.classify("markdown", buffer.lines[hl_valid], state);
+        if (hl_classes.size() > hl_valid) {
+            hl_classes[hl_valid] = tokens.classes;
+            hl_states[hl_valid] = tokens.state;
+        } else {
+            hl_classes.push(tokens.classes);
+            hl_states.push(tokens.state);
+        }
+        hl_valid = hl_valid + 1;
+    }
+    return hl_classes[line_index];
+}
+
+/// How many words the text has (cached per revision).
+pub int Viewer.words() {
+    if (words_revision == buffer.revision && words_count > 0) {
+        return words_count;
+    }
+    int total = 0;
+    for (str line in buffer.lines) {
+        bool is_in = false;
+        for (int index in 0 .. line.size()) {
+            int value = line.byte_at(index);
+            bool is_space = value == ' ' || value == '\t';
+            if (!is_space && !is_in) {
+                total = total + 1;
+            }
+            is_in = !is_space;
+        }
+    }
+    words_revision = buffer.revision;
+    words_count = total;
+    return total;
+}
+
+/// Bring everything that depends on the text up to date after a command that
+/// may have changed it or moved the caret. `old_row` and `old_lines` are what
+/// they were before; `is_forced` says the change may reach across blocks.
+void Viewer.after(int old_row, int old_lines, bool is_forced) {
+    if (old_row != buffer.caret.row && old_row < buffer.lines.size()) {
+        List<int> was = MDV_assist.table_range(buffer, old_row);
+        if (was.size() == 2) {
+            MDV_assist.table_align(buffer, old_row);
+            buffer.seal();
+        }
+    }
+    int dirty = buffer.dirty_from;
+    bool is_changed = dirty < 1000000000;
+    if (is_changed) {
+        buffer.dirty_from = 1000000000;
+        if (hl_valid > dirty) {
+            hl_valid = dirty;
+        }
+        is_doc_old = true;
+        if (is_forced || buffer.lines.size() != old_lines || !is_live()) {
+            is_doc_stale = true;
+        }
+        if (finder.needle.size() > 0) {
+            finder.search(buffer.lines);
+        }
+    }
+    bool is_moved_block = is_live() && MDV_live.block_at(live, buffer.caret.row) != live_active;
+    if (is_moved_block && is_doc_old) {
+        is_doc_stale = true;
+    }
+    if (is_changed || is_moved_block) {
+        layout = build_layout();
+        if (needle.size() > 0) {
+            find_hits();
+        }
+    }
+    if (top > max_top()) {
+        top = max_top();
+    }
+    reveal_caret();
+}
+
+bool Viewer.needs_editing() {
+    if (is_editing()) {
+        return true;
+    }
+    message = "switch to Source or Live to edit (Alt-S, Alt-L)";
+    return false;
+}
+
+str Viewer.copy_text() {
+    if (buffer.has_selection()) {
+        return buffer.selected_text();
+    }
+    return buffer.lines[buffer.caret.row] + "\n";
+}
+
+/// Run command `id` (see `MDV_actions`).
+pub TUI_app.Action Viewer.run_action(int id) {
+    int old_row = buffer.caret.row;
+    int old_lines = buffer.lines.size();
+    if (id == MDV_actions.PREVIEW) {
+        set_pane(Pane.Preview);
+    } else if (id == MDV_actions.SOURCE) {
+        set_pane(Pane.Source);
+    } else if (id == MDV_actions.LIVE) {
+        set_pane(Pane.Live);
+    } else if (id == MDV_actions.CYCLE_PANE) {
+        match (pane) {
+            case Preview: {
+                set_pane(Pane.Live);
+            }
+            case Live: {
+                set_pane(Pane.Source);
+            }
+            case Source: {
+                set_pane(Pane.Preview);
+            }
+        }
+    } else if (id == MDV_actions.SAVE) {
+        save();
+    } else if (id == MDV_actions.SAVE_AS) {
+        mode = Mode.Prompt;
+        prompt_kind = "saveas";
+        prompt_text = "";
+        is_quit_after_save = false;
+    } else if (id == MDV_actions.RELOAD) {
+        if (buffer.is_dirty()) {
+            mode = Mode.Prompt;
+            prompt_kind = "discard-reload";
+        } else {
+            requests.push(Request.Reload);
+        }
+    } else if (id == MDV_actions.QUIT) {
+        return quit_action();
+    } else if (id == MDV_actions.FIND) {
+        open_find(false);
+    } else if (id == MDV_actions.REPLACE) {
+        if (!is_editing()) {
+            set_pane(Pane.Live);
+        }
+        open_find(true);
+    } else if (id == MDV_actions.FIND_NEXT) {
+        step_match(1);
+    } else if (id == MDV_actions.FIND_PREVIOUS) {
+        step_match(-1);
+    } else if (id == MDV_actions.GO_TO_HEADING) {
+        open_outline();
+    } else if (id == MDV_actions.PALETTE) {
+        mode = Mode.Palette;
+        query = "";
+        palette_pick = 0;
+    } else if (id == MDV_actions.CHOOSE_THEME) {
+        mode = Mode.Palette;
+        query = "Theme: ";
+        palette_pick = 0;
+    } else if (id == MDV_actions.SIDEBAR) {
+        toggle_side();
+    } else if (id == MDV_actions.NEXT_THEME) {
+        new_theme = "next";
+    } else if (id >= MDV_actions.THEME_BASE) {
+        List<str> themes = MDV_theme.names();
+        if (id - MDV_actions.THEME_BASE < themes.size()) {
+            new_theme = themes[id - MDV_actions.THEME_BASE];
+        }
+    } else if (id == MDV_actions.TOGGLE_SMART) {
+        is_smart = !is_smart;
+        message = "smart typography " + on_off(is_smart);
+    } else if (id == MDV_actions.TOGGLE_ZEBRA) {
+        is_zebra = !is_zebra;
+        relayout();
+    } else if (id == MDV_actions.TOGGLE_NUMBERS) {
+        has_numbers = !has_numbers;
+        relayout();
+    } else if (id == MDV_actions.HELP) {
+        mode = Mode.Help;
+        help_top = 0;
+    } else if ((id == MDV_actions.UNDO || id == MDV_actions.REDO) && !is_editing()) {
+        // A tick in Preview is an edit too.
+        bool did_step = false;
+        if (id == MDV_actions.UNDO) {
+            did_step = buffer.did_undo();
+        } else {
+            did_step = buffer.did_redo();
+        }
+        if (did_step) {
+            is_doc_stale = true;
+            int keep = top;
+            layout = build_layout();
+            scroll_to(keep);
+        }
+        return TUI_app.Action.Redraw;
+    } else if (!needs_editing()) {
+        return TUI_app.Action.Redraw;
+    } else {
+        edit_action(id);
+    }
+    if (is_editing()) {
+        after(old_row, old_lines, true);
+    }
+    return TUI_app.Action.Redraw;
+}
+
+/// The editing commands: the ones that change the text.
+void Viewer.edit_action(int id) {
+    if (id == MDV_actions.UNDO) {
+        if (!buffer.did_undo()) {
+            message = "nothing to undo";
+        }
+    } else if (id == MDV_actions.REDO) {
+        if (!buffer.did_redo()) {
+            message = "nothing to redo";
+        }
+    } else if (id == MDV_actions.CUT) {
+        cut();
+    } else if (id == MDV_actions.COPY) {
+        copy();
+    } else if (id == MDV_actions.PASTE) {
+        requests.push(Request.Paste);
+    } else if (id == MDV_actions.SELECT_ALL) {
+        buffer.select_all();
+    } else if (id == MDV_actions.BOLD) {
+        MDV_assist.toggle_inline(buffer, "**");
+    } else if (id == MDV_actions.ITALIC) {
+        MDV_assist.toggle_inline(buffer, "*");
+    } else if (id == MDV_actions.STRIKE) {
+        MDV_assist.toggle_inline(buffer, "~~");
+    } else if (id == MDV_actions.CODE) {
+        MDV_assist.toggle_inline(buffer, "`");
+    } else if (id == MDV_actions.LINK) {
+        MDV_assist.insert_link(buffer, false);
+    } else if (id == MDV_actions.IMAGE) {
+        MDV_assist.insert_link(buffer, true);
+    } else if (id >= MDV_actions.HEADING_1 && id <= MDV_actions.HEADING_6) {
+        MDV_assist.set_heading(buffer, id - MDV_actions.HEADING_1 + 1);
+    } else if (id == MDV_actions.BULLETS) {
+        MDV_assist.toggle_prefix(buffer, "bullet");
+    } else if (id == MDV_actions.NUMBERS) {
+        MDV_assist.toggle_prefix(buffer, "number");
+    } else if (id == MDV_actions.TASKS) {
+        MDV_assist.toggle_prefix(buffer, "task");
+    } else if (id == MDV_actions.QUOTE) {
+        MDV_assist.toggle_prefix(buffer, "quote");
+    } else if (id == MDV_actions.TABLE) {
+        MDV_assist.insert_table(buffer);
+    } else if (id == MDV_actions.CODE_BLOCK) {
+        MDV_assist.insert_code_block(buffer);
+    } else if (id == MDV_actions.RULE) {
+        MDV_assist.insert_rule(buffer);
+    } else if (id == MDV_actions.ALIGN_TABLE) {
+        MDV_assist.table_align(buffer, buffer.caret.row);
+        buffer.seal();
+    }
+}
+
+void Viewer.copy() {
+    str text = copy_text();
+    clipboard = text;
+    requests.push(Request.Copy(text));
+    message = "copied " + str(text.chars().size()) + " characters";
+}
+
+void Viewer.cut() {
+    str text = copy_text();
+    clipboard = text;
+    requests.push(Request.Copy(text));
+    buffer.begin("cut");
+    if (buffer.has_selection()) {
+        bool did_ignore = buffer.did_delete_selection();
+    } else {
+        int row_here = buffer.caret.row;
+        MDV_edit.Pos from = MDV_edit.Pos(row_here, 0);
+        MDV_edit.Pos upto = MDV_edit.Pos(row_here + 1, 0);
+        if (row_here + 1 >= buffer.lines.size()) {
+            upto = MDV_edit.Pos(row_here, buffer.lines[row_here].size());
+            if (row_here > 0) {
+                from = MDV_edit.Pos(row_here - 1, buffer.lines[row_here - 1].size());
+            }
+        }
+        MDV_edit.Pos finish = buffer.splice(from, upto, "");
+        buffer.caret = buffer.clamp(MDV_edit.Pos(from.row, 0));
+        if (row_here + 1 >= buffer.lines.size() && row_here > 0) {
+            buffer.caret = buffer.clamp(MDV_edit.Pos(row_here - 1, 0));
+        }
+    }
+    buffer.finish();
+    buffer.seal();
+    message = "cut " + str(text.chars().size()) + " characters";
+}
+
+/// Text arrived from the clipboard or as a bracketed paste. `kind` is
+/// "image" or "file" when it is a path to one, else "".
+pub void Viewer.paste_text(str text, str kind) {
+    match (mode) {
+        case Find: {
+            add_to_find(text.split("\n")[0]);
+            return;
+        }
+        case Palette: {
+            query = query + text.split("\n")[0];
+            palette_pick = 0;
+            return;
+        }
+        case Prompt: {
+            prompt_text = prompt_text + text.split("\n")[0];
+            return;
+        }
+        case Normal: {
+        }
+        case Search: {
+            query = query + text.split("\n")[0];
+            return;
+        }
+        case Outline: {
+            return;
+        }
+        case Help: {
+            return;
+        }
+    }
+    if (!is_editing()) {
+        message = "switch to Source or Live to paste (Alt-S, Alt-L)";
+        return;
+    }
+    int old_row = buffer.caret.row;
+    int old_lines = buffer.lines.size();
+    MDV_assist.paste(buffer, text, kind);
+    buffer.seal();
+    after(old_row, old_lines, true);
+}
+
+void Viewer.save() {
+    if (name == "<stdin>" || name.size() == 0) {
+        mode = Mode.Prompt;
+        prompt_kind = "saveas";
+        prompt_text = "";
+        return;
+    }
+    requests.push(Request.Save(name, buffer.text()));
+}
+
+/// The file was written: the text is clean.
+pub void Viewer.saved(str path) {
+    name = path;
+    buffer.mark_saved();
+    message = "saved " + path;
+    if (is_quit_after_save) {
+        should_quit = true;
+    }
+    is_quit_after_save = false;
+}
+
+/// Writing the file failed.
+pub void Viewer.save_failed(str why) {
+    message = "could not save: " + why;
+    is_quit_after_save = false;
+}
+
+/// The answer to a quit: leave, or ask first when there is work to lose.
+pub TUI_app.Action Viewer.quit_action() {
+    if (buffer.is_dirty()) {
+        mode = Mode.Prompt;
+        prompt_kind = "quit";
+        return TUI_app.Action.Redraw;
+    }
+    return TUI_app.Action.Quit;
+}
+
+/// Open another file, after asking when the text has unsaved changes.
+void Viewer.ask_open(str path) {
+    if (buffer.is_dirty()) {
+        pending_open = path;
+        mode = Mode.Prompt;
+        prompt_kind = "open";
+        return;
+    }
+    requests.push(Request.Open(path));
+}
+
+/// The file changed on disk under unsaved edits.
+pub void Viewer.disk_changed() {
+    mode = Mode.Prompt;
+    prompt_kind = "reload";
+}
+
+/// What the prompt shows on the status line.
+pub str Viewer.prompt_line() {
+    if (prompt_kind == "saveas") {
+        return "Save as: " + prompt_text;
+    }
+    if (prompt_kind == "quit") {
+        return "Unsaved changes: [S]ave and quit, [D]iscard and quit, Esc to stay";
+    }
+    if (prompt_kind == "open") {
+        return "Unsaved changes: [D]iscard them and open " + pending_open + ", Esc to stay";
+    }
+    if (prompt_kind == "discard-reload") {
+        return "Discard your changes and read the file again? [Y]es, Esc to keep them";
+    }
+    return "The file changed on disk: [R]eload it, [K]eep your version";
+}
+
+TUI_app.Action Viewer.prompt_key(term.Key pressed, str key_name) {
+    if (key_name == "esc") {
+        mode = Mode.Normal;
+        if (prompt_kind == "open") {
+            load_failed("");
+            message = "staying";
+        }
+        prompt_kind = "";
+        is_quit_after_save = false;
+        return TUI_app.Action.Redraw;
+    }
+    if (prompt_kind == "saveas") {
+        if (key_name == "enter") {
+            mode = Mode.Normal;
+            str target = prompt_text.trim();
+            prompt_kind = "";
+            if (target.size() > 0) {
+                requests.push(Request.Save(target, buffer.text()));
+            }
+            return TUI_app.Action.Redraw;
+        }
+        if (key_name == "backspace") {
+            List<int> chars = prompt_text.chars();
+            if (chars.size() > 0) {
+                chars.pop();
+                prompt_text = str.from_chars(chars);
+            }
+            return TUI_app.Action.Redraw;
+        }
+        int value = MDV_keys.char_of(pressed);
+        if (value > 0) {
+            prompt_text = prompt_text + str.from_chars([value]);
+        }
+        return TUI_app.Action.Redraw;
+    }
+    str answer = key_name.to_lower();
+    mode = Mode.Normal;
+    str kind = prompt_kind;
+    prompt_kind = "";
+    if (kind == "quit") {
+        if (answer == "s" || answer == "y") {
+            is_quit_after_save = true;
+            save();
+            if (is_plain_mode() && !buffer.is_dirty()) {
+                return TUI_app.Action.Quit;
+            }
+            return TUI_app.Action.Redraw;
+        }
+        if (answer == "d" || answer == "n") {
+            return TUI_app.Action.Quit;
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (kind == "open") {
+        if (answer == "d") {
+            buffer.mark_saved();
+            requests.push(Request.Open(pending_open));
+        } else {
+            load_failed("");
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (kind == "discard-reload" && (answer == "y" || answer == "d")) {
+        requests.push(Request.Reload);
+        return TUI_app.Action.Redraw;
+    }
+    if (kind == "reload" && answer == "r") {
+        requests.push(Request.Reload);
+        return TUI_app.Action.Redraw;
+    }
+    if (kind == "reload") {
+        message = "keeping your version; save to overwrite the file";
+    }
+    return TUI_app.Action.Redraw;
+}
+
+pub List<MDV_actions.Action> Viewer.palette_items() {
+    return MDV_actions.filter(query);
+}
+
+TUI_app.Action Viewer.palette_key(term.Key pressed, str key_name) {
+    List<MDV_actions.Action> items = palette_items();
+    if (key_name == "esc" || key_name == "ctrl-p" || key_name == "f1") {
+        mode = Mode.Normal;
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "down" || key_name == "ctrl-n" || key_name == "tab") {
+        if (items.size() > 0) {
+            palette_pick = (palette_pick + 1) % items.size();
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "up" || key_name == "ctrl-p" || key_name == "backtab") {
+        if (items.size() > 0) {
+            palette_pick = (palette_pick + items.size() - 1) % items.size();
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "enter") {
+        mode = Mode.Normal;
+        if (palette_pick < items.size()) {
+            return run_action(items[palette_pick].id);
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "backspace") {
+        List<int> chars = query.chars();
+        if (chars.size() > 0) {
+            chars.pop();
+            query = str.from_chars(chars);
+        }
+        palette_pick = 0;
+        return TUI_app.Action.Redraw;
+    }
+    int value = MDV_keys.char_of(pressed);
+    if (value > 0) {
+        query = query + str.from_chars([value]);
+        palette_pick = 0;
+    }
+    return TUI_app.Action.Redraw;
+}
+
+/// Open the find bar (with the replace row when `should_replace`), starting from
+/// the selected word when there is one.
+pub void Viewer.open_find(bool should_replace) {
+    mode = Mode.Find;
+    is_replace = should_replace;
+    is_replace_focused = false;
+    if (is_editing() && buffer.has_selection()) {
+        str picked = buffer.selected_text();
+        if (!picked.contains("\n") && picked.size() < 200) {
+            finder.needle = picked;
+        }
+    } else if (finder.needle.size() == 0 && needle.size() > 0) {
+        finder.needle = needle;
+    }
+    refind();
+}
+
+/// Search again for the finder's needle: the source matches and the hits
+/// drawn on the layout.
+void Viewer.refind() {
+    finder.search(buffer.lines);
+    needle = finder.needle;
+    find_hits();
+    if (needle.size() == 0) {
+        return;
+    }
+    if (is_editing()) {
+        int target = finder.first_from(buffer.sel_start());
+        if (target >= 0) {
+            go_match(target);
+        }
+    } else if (hits.size() > 0) {
+        go_to_hit(first_hit_from_top());
+    }
+}
+
+/// Select source match `target` and show it.
+void Viewer.go_match(int target) {
+    if (target < 0 || target >= finder.matches.size()) {
+        return;
+    }
+    finder.current = target;
+    MDV_find.Match found = finder.matches[target];
+    buffer.select(MDV_edit.Pos(found.row, found.col), MDV_edit.Pos(found.row, found.col + found.length));
+    int old_lines = buffer.lines.size();
+    after(buffer.caret.row, old_lines, false);
+}
+
+/// Go to the next (step 1) or previous (-1) match.
+void Viewer.step_match(int step) {
+    if (finder.needle.size() == 0) {
+        message = "nothing to find: Ctrl-F";
+        return;
+    }
+    if (!is_editing()) {
+        if (hits.size() == 0) {
+            message = "pattern not found: " + needle;
+            return;
+        }
+        go_to_hit_after(1, step);
+        return;
+    }
+    if (finder.matches.size() == 0) {
+        message = "pattern not found: " + finder.needle;
+        return;
+    }
+    int target = 0;
+    if (step > 0) {
+        MDV_edit.Pos from = buffer.sel_end();
+        if (!buffer.has_selection()) {
+            from = buffer.caret;
+        }
+        target = finder.first_from(from);
+        if (buffer.has_selection() && target >= 0 && finder.matches[target].row == buffer.sel_start().row && finder.matches[target].col == buffer.sel_start().col) {
+            target = target + 1;
+            if (target >= finder.matches.size()) {
+                target = 0;
+            }
+        }
+    } else {
+        target = finder.last_before(buffer.sel_start());
+    }
+    go_match(target);
+}
+
+void Viewer.add_to_find(str text) {
+    if (is_replace_focused) {
+        finder.replacement = finder.replacement + text;
+    } else {
+        finder.needle = finder.needle + text;
+        refind();
+    }
+}
+
+TUI_app.Action Viewer.find_key(term.Key pressed, str key_name) {
+    if (key_name == "esc") {
+        mode = Mode.Normal;
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "enter" || key_name == "down" || key_name == "f3") {
+        if (is_replace_focused && is_editing()) {
+            replace_current();
+        } else {
+            step_match(1);
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "up" || key_name == "shift-f3" || key_name == "shift-enter") {
+        step_match(-1);
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "tab" || key_name == "backtab") {
+        if (is_replace) {
+            is_replace_focused = !is_replace_focused;
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "ctrl-h" || key_name == "ctrl-r") {
+        is_replace = !is_replace;
+        is_replace_focused = is_replace;
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "alt-c") {
+        finder.is_exact = !finder.is_exact;
+        refind();
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "alt-a" || key_name == "ctrl-alt-enter") {
+        replace_all();
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "ctrl-s") {
+        save();
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "ctrl-u") {
+        if (is_replace_focused) {
+            finder.replacement = "";
+        } else {
+            finder.needle = "";
+            refind();
+        }
+        return TUI_app.Action.Redraw;
+    }
+    if (key_name == "backspace") {
+        if (is_replace_focused) {
+            List<int> chars = finder.replacement.chars();
+            if (chars.size() > 0) {
+                chars.pop();
+                finder.replacement = str.from_chars(chars);
+            }
+        } else {
+            List<int> chars = finder.needle.chars();
+            if (chars.size() > 0) {
+                chars.pop();
+                finder.needle = str.from_chars(chars);
+            }
+            refind();
+        }
+        return TUI_app.Action.Redraw;
+    }
+    int value = MDV_keys.char_of(pressed);
+    if (value > 0) {
+        add_to_find(str.from_chars([value]));
+    }
+    return TUI_app.Action.Redraw;
+}
+
+void Viewer.replace_current() {
+    if (finder.matches.size() == 0) {
+        message = "nothing to replace";
+        return;
+    }
+    int target = finder.current;
+    if (target < 0 || !buffer.has_selection()) {
+        target = finder.first_from(buffer.sel_start());
+    }
+    int old_lines = buffer.lines.size();
+    int old_row = buffer.caret.row;
+    finder.replace_at(buffer, target);
+    after(old_row, old_lines, true);
+    finder.search(buffer.lines);
+    step_match(1);
+}
+
+void Viewer.replace_all() {
+    if (!is_editing()) {
+        message = "switch to Source or Live to replace (Alt-S, Alt-L)";
+        return;
+    }
+    int old_lines = buffer.lines.size();
+    int old_row = buffer.caret.row;
+    int done = finder.replace_all(buffer);
+    after(old_row, old_lines, true);
+    finder.search(buffer.lines);
+    message = "replaced " + str(done);
+}
+
+/// The keys that mean the same in every pane (and the palette's `ctrl-p`).
+Option<TUI_app.Action> Viewer.global_key(term.Key pressed, str key_name) {
+    int id = 0;
+    if (key_name == "ctrl-s") {
+        id = MDV_actions.SAVE;
+    } else if (key_name == "ctrl-p" || key_name == "f1") {
+        id = MDV_actions.PALETTE;
+    } else if (key_name == "ctrl-f") {
+        id = MDV_actions.FIND;
+    } else if (key_name == "ctrl-h" || key_name == "ctrl-r") {
+        id = MDV_actions.REPLACE;
+    } else if (key_name == "f2") {
+        id = MDV_actions.CYCLE_PANE;
+    } else if (key_name == "alt-p") {
+        id = MDV_actions.PREVIEW;
+    } else if (key_name == "alt-s") {
+        id = MDV_actions.SOURCE;
+    } else if (key_name == "alt-l") {
+        id = MDV_actions.LIVE;
+    } else if (key_name == "ctrl-q") {
+        id = MDV_actions.QUIT;
+    } else if ((key_name == "ctrl-z" || key_name == "ctrl-y") && !is_editing()) {
+        id = MDV_actions.UNDO;
+        if (key_name == "ctrl-y") {
+            id = MDV_actions.REDO;
+        }
+    } else if (key_name == "ctrl-g") {
+        id = MDV_actions.GO_TO_HEADING;
+    } else if (key_name == "f3") {
+        id = MDV_actions.FIND_NEXT;
+    } else if (key_name == "shift-f3") {
+        id = MDV_actions.FIND_PREVIOUS;
+    } else if (key_name == "f5") {
+        id = MDV_actions.RELOAD;
+    } else if (key_name == "ctrl-\\") {
+        id = MDV_actions.SIDEBAR;
+    }
+    if (id == 0) {
+        return Option<TUI_app.Action>.None;
+    }
+    return Option<TUI_app.Action>.Some(run_action(id));
+}
+
+/// A key in Source or Live: type, move, or run a shortcut.
+TUI_app.Action Viewer.edit_key(term.Key pressed, str key_name) {
+    bool is_ctrl = pressed.has_modifiers(term.CTRL);
+    bool is_alt = pressed.has_modifiers(term.ALT);
+    bool is_shift = pressed.has_modifiers(term.SHIFT);
+    int old_row = buffer.caret.row;
+    int old_lines = buffer.lines.size();
+    bool is_forced = false;
+    match (pressed.code) {
+        case Char(int value): {
+            if (is_ctrl && !is_alt) {
+                int id = ctrl_action(value);
+                if (id > 0) {
+                    return run_action(id);
+                }
+                if (value == 'w') {
+                    buffer.delete_word_back();
+                }
+            } else if (is_alt) {
+                int id = alt_action(value);
+                if (id > 0) {
+                    return run_action(id);
+                }
+                if (value == 'b') {
+                    buffer.move(MDV_edit.Motion.WordLeft, is_shift);
+                } else if (value == 'f') {
+                    buffer.move(MDV_edit.Motion.WordRight, is_shift);
+                }
+            } else if (value >= 32 && value != 127) {
+                MDV_assist.type_char(buffer, value, is_smart);
+            }
+        }
+        case Enter: {
+            MDV_assist.enter(buffer);
+            buffer.seal();
+        }
+        case Tab: {
+            MDV_assist.indent_lines(buffer, is_shift);
+            buffer.seal();
+        }
+        case BackTab: {
+            MDV_assist.indent_lines(buffer, true);
+            buffer.seal();
+        }
+        case Backspace: {
+            if (is_ctrl || is_alt) {
+                buffer.delete_word_back();
+            } else {
+                MDV_assist.backspace(buffer);
+            }
+        }
+        case Delete: {
+            if (is_ctrl || is_alt) {
+                buffer.delete_word_forward();
+            } else {
+                buffer.delete_forward();
+            }
+        }
+        case Escape: {
+            buffer.clear_selection();
+            buffer.seal();
+        }
+        case Left: {
+            if (is_ctrl || is_alt) {
+                buffer.move(MDV_edit.Motion.WordLeft, is_shift);
+            } else {
+                buffer.move(MDV_edit.Motion.Left, is_shift);
+            }
+        }
+        case Right: {
+            if (is_ctrl || is_alt) {
+                buffer.move(MDV_edit.Motion.WordRight, is_shift);
+            } else {
+                buffer.move(MDV_edit.Motion.Right, is_shift);
+            }
+        }
+        case Up: {
+            move_rows(-1, is_shift);
+        }
+        case Down: {
+            move_rows(1, is_shift);
+        }
+        case Home: {
+            if (is_ctrl) {
+                buffer.move(MDV_edit.Motion.DocStart, is_shift);
+            } else {
+                buffer.move(MDV_edit.Motion.SmartHome, is_shift);
+            }
+        }
+        case End: {
+            if (is_ctrl) {
+                buffer.move(MDV_edit.Motion.DocEnd, is_shift);
+            } else {
+                buffer.move(MDV_edit.Motion.LineEnd, is_shift);
+            }
+        }
+        case PageUp: {
+            move_rows(-height(), is_shift);
+            scroll_to(top - height());
+        }
+        case PageDown: {
+            move_rows(height(), is_shift);
+            scroll_to(top + height());
+        }
+        case Insert: {
+        }
+        case F(int number): {
+        }
+    }
+    after(old_row, old_lines, is_forced);
+    return TUI_app.Action.Redraw;
+}
+
+/// Tick or untick the task item on source line `line_number` (1-based).
+pub void Viewer.toggle_task(int line_number) {
+    int line_index = line_number - 1;
+    if (line_index < 0 || line_index >= buffer.lines.size()) {
+        message = "could not find the checkbox";
+        return;
+    }
+    str text = buffer.lines[line_index];
+    MDV_assist.Item item = MDV_assist.parse_item(text);
+    if (item.task == 0) {
+        message = "could not find the checkbox";
+        return;
+    }
+    int box = item.marker_end + 1;
+    if (box + 2 >= text.size() || text.byte_at(box) != '[') {
+        message = "could not find the checkbox";
+        return;
+    }
+    int old_row = buffer.caret.row;
+    int old_lines = buffer.lines.size();
+    str mark = "x";
+    if (item.task == 2) {
+        mark = " ";
+    }
+    buffer.begin("task");
+    MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(line_index, box + 1), MDV_edit.Pos(line_index, box + 2), mark);
+    buffer.finish();
+    buffer.seal();
+    int keep = top;
+    after(old_row, old_lines, true);
+    if (!is_editing()) {
+        layout = build_layout();
+        scroll_to(keep);
+    }
+}
+
 /// A viewer showing `text` (the contents of `name`) in a terminal of `columns` x
 /// `rows`.
 pub Viewer open(List<str> files, str name, str text, int columns, int rows) {
     MDV_model.Document doc = MDV_prepare.prepare(text);
     MDV_model.Layout layout = MDV_layout.layout(doc, text_width_for(columns));
-    return Viewer(files, name, text, doc, layout, columns, rows);
+    return Viewer(files, name, MDV_edit.Buffer.of(text), doc, layout, columns, rows);
 }
 
 /// The text width of a window of `columns` with the defaults.
@@ -1246,6 +2717,91 @@ List<TUI_outline.Node> outline_nodes(List<MDV_model.Heading> headings, Cursor cu
     return out;
 }
 
-// --- keys -------------------------------------------------------------------------------------
+// --- panes ------------------------------------------------------------------------------------
 
-// --- the mouse --------------------------------------------------------------------------------
+/// The pane's name as the status line shows it.
+pub str pane_name(Pane value) {
+    match (value) {
+        case Preview: {
+            return "Preview";
+        }
+        case Source: {
+            return "Source";
+        }
+        case Live: {
+            return "Live";
+        }
+    }
+}
+
+// --- the caret and the screen ---------------------------------------------------------------------
+
+// --- after a command ------------------------------------------------------------------------------
+
+// --- actions --------------------------------------------------------------------------------------------
+
+str on_off(bool is_on) {
+    if (is_on) {
+        return "on";
+    }
+    return "off";
+}
+
+// --- saving, quitting, asking ----------------------------------------------------------------------------
+
+// --- the command palette ------------------------------------------------------------------------------------
+
+// --- find and replace -------------------------------------------------------------------------------------------------
+
+// --- keys -----------------------------------------------------------------------------------------------------------
+
+/// The action a Ctrl-letter means in the editing panes, 0 for none.
+int ctrl_action(int value) {
+    if (value == 'a') {
+        return MDV_actions.SELECT_ALL;
+    }
+    if (value == 'b') {
+        return MDV_actions.BOLD;
+    }
+    if (value == 'e') {
+        return MDV_actions.CODE;
+    }
+    if (value == 'k') {
+        return MDV_actions.LINK;
+    }
+    if (value == 'c') {
+        return MDV_actions.COPY;
+    }
+    if (value == 'x') {
+        return MDV_actions.CUT;
+    }
+    if (value == 'v') {
+        return MDV_actions.PASTE;
+    }
+    if (value == 'z') {
+        return MDV_actions.UNDO;
+    }
+    if (value == 'y') {
+        return MDV_actions.REDO;
+    }
+    return 0;
+}
+
+/// The action an Alt-key means in the editing panes, 0 for none.
+int alt_action(int value) {
+    if (value == 'i') {
+        return MDV_actions.ITALIC;
+    }
+    if (value == 'd') {
+        return MDV_actions.STRIKE;
+    }
+    if (value == 'm') {
+        return MDV_actions.IMAGE;
+    }
+    if (value >= '1' && value <= '6') {
+        return MDV_actions.HEADING_1 + value - '1';
+    }
+    return 0;
+}
+
+// --- checkboxes -----------------------------------------------------------------------------------------------------

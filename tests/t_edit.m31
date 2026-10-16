@@ -1,0 +1,396 @@
+// Unit tests for the editing core and the markdown assists: no terminal.
+//
+// A buffer is written as text with its caret as `‸` and a selection as
+// `«` .. `»` (the caret at the `»`); `show` writes one back the same way, so a
+// test reads "before -> command -> after".
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_assist;
+import MDV_edit;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.same(str name, str got, str want) {
+    if (got == want) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": got [" + got.split("\n").join("\\n") + "] want [" + want.split("\n").join("\\n") + "]");
+    }
+}
+
+void Tally.check(str name, bool is_true) {
+    same(name, str(is_true), "true");
+}
+
+void Tally.number_check(str name, int got, int want) {
+    same(name, str(got), str(want));
+}
+
+/// A buffer from `spec`: markers removed, caret and selection set.
+MDV_edit.Buffer make(str spec) {
+    List<str> rows = spec.split("\n");
+    MDV_edit.Buffer out = MDV_edit.Buffer();
+    List<str> clean = [];
+    MDV_edit.Pos caret = MDV_edit.Pos(0, 0);
+    MDV_edit.Pos open_position = MDV_edit.Pos(-1, 0);
+    MDV_edit.Pos close_position = MDV_edit.Pos(-1, 0);
+    bool has_caret = false;
+    for (int row in 0 .. rows.size()) {
+        str line = rows[row];
+        // Strip the markers left to right, remembering where each was.
+        str built = "";
+        int index = 0;
+        List<int> chars = line.chars();
+        for (int value in chars) {
+            if (value == 0x2038) {
+                caret = MDV_edit.Pos(row, built.size());
+                has_caret = true;
+            } else if (value == 0xab) {
+                open_position = MDV_edit.Pos(row, built.size());
+            } else if (value == 0xbb) {
+                close_position = MDV_edit.Pos(row, built.size());
+            } else {
+                built = built + str.from_chars([value]);
+            }
+        }
+        clean.push(built);
+    }
+    out.lines = clean;
+    if (open_position.row >= 0 && close_position.row >= 0) {
+        out.select(open_position, close_position);
+    } else if (has_caret) {
+        out.caret = caret;
+    }
+    return out;
+}
+
+str mark(str line, int col, str marker) {
+    return line.substr(0, col) + marker + line.substr(col, line.size());
+}
+
+/// The buffer as `make` would read it back.
+str show(MDV_edit.Buffer buffer) {
+    List<str> out = [];
+    for (int row in 0 .. buffer.lines.size()) {
+        str line = buffer.lines[row];
+        if (buffer.has_selection()) {
+            MDV_edit.Pos first = buffer.sel_start();
+            MDV_edit.Pos last = buffer.sel_end();
+            // The later mark first, so the earlier column stays right.
+            if (last.row == row) {
+                line = mark(line, last.col, "\u{bb}");
+            }
+            if (first.row == row) {
+                line = mark(line, first.col, "\u{ab}");
+            }
+        } else if (buffer.caret.row == row) {
+            line = mark(line, buffer.caret.col, "\u{2038}");
+        }
+        out.push(line);
+    }
+    return out.join("\n");
+}
+
+Tally tally = Tally();
+// --- the core ---------------------------------------------------------------------------
+MDV_edit.Buffer buffer = make("‸");
+for (int value in "abc".chars()) {
+    buffer.type_text(str.from_chars([value]));
+}
+tally.same("typing", show(buffer), "abc‸");
+tally.check("is dirty", buffer.is_dirty());
+buffer.did_undo();
+tally.same("a run of typing is one undo step", show(buffer), "‸");
+tally.check("and is clean again", !buffer.is_dirty());
+buffer.did_redo();
+tally.same("redo", show(buffer), "abc‸");
+buffer.move(MDV_edit.Motion.Left, false);
+buffer.type_text("X");
+buffer.did_undo();
+tally.same("moving the caret ends the group", show(buffer), "ab‸c");
+buffer = make("ab‸");
+MDV_assist.enter(buffer);
+buffer.type_text("c");
+buffer.did_undo();
+tally.same("Enter and typing are separate steps", show(buffer), "ab\n‸");
+buffer.did_undo();
+tally.same("undo the newline", show(buffer), "ab‸");
+buffer = make("ab\n‸cd");
+buffer.delete_back();
+tally.same("Backspace at the start joins lines", show(buffer), "ab‸cd");
+buffer.did_undo();
+tally.same("and undo splits them again", show(buffer), "ab\n‸cd");
+buffer = make("a «bc» d");
+buffer.delete_back();
+tally.same("Backspace deletes the selection", show(buffer), "a ‸ d");
+buffer = make("a «bc» d");
+buffer.type_text("X");
+tally.same("typing replaces the selection", show(buffer), "a X‸ d");
+buffer = make("one two ‸three");
+buffer.move(MDV_edit.Motion.WordLeft, false);
+tally.same("word left", show(buffer), "one ‸two three");
+buffer.move(MDV_edit.Motion.WordRight, true);
+tally.same("word right with shift selects", show(buffer), "one «two» three");
+buffer.move(MDV_edit.Motion.Right, false);
+tally.same("a plain Right leaves the selection at its end", show(buffer), "one two‸ three");
+buffer = make("e\u{301}x‸");
+buffer.move(MDV_edit.Motion.Left, false);
+buffer.move(MDV_edit.Motion.Left, false);
+tally.number_check("a grapheme is one step", buffer.caret.col, 0);
+buffer = make("日本‸語");
+buffer.move(MDV_edit.Motion.Left, false);
+tally.number_check("a CJK character is one step", buffer.caret.col, 3);
+buffer = make("abcd\nef‸\nghijkl");
+buffer.move(MDV_edit.Motion.LineDown, false);
+tally.same("vertical moves keep the column", show(buffer), "abcd\nef\ngh‸ijkl");
+buffer = make("abcdef\n‸x\nabcdef");
+buffer.select_word(MDV_edit.Pos(0, 2));
+tally.same("a double click selects the word", show(buffer), "«abcdef»\nx\nabcdef");
+buffer.select_line(MDV_edit.Pos(1, 0));
+tally.same("a triple click selects the line", show(buffer), "abcdef\n«x\n»abcdef");
+buffer = make("  ‸x");
+buffer.move(MDV_edit.Motion.SmartHome, false);
+tally.same("Home goes to column 0 from the indent", show(buffer), "‸  x");
+buffer.move(MDV_edit.Motion.SmartHome, false);
+tally.same("and back to the first word", show(buffer), "  ‸x");
+buffer = make("‸a");
+buffer.select_all();
+tally.same("select all", show(buffer), "«a»");
+// --- Enter -------------------------------------------------------------------------------------
+buffer = make("- a‸");
+MDV_assist.enter(buffer);
+tally.same("Enter continues a bullet", show(buffer), "- a\n- ‸");
+MDV_assist.enter(buffer);
+tally.same("Enter on an empty item ends the list", show(buffer), "- a\n‸");
+buffer = make("* a‸");
+MDV_assist.enter(buffer);
+tally.same("a * bullet continues as *", show(buffer), "* a\n* ‸");
+buffer = make("1. a‸");
+MDV_assist.enter(buffer);
+tally.same("1. continues as 2.", show(buffer), "1. a\n2. ‸");
+buffer = make("1. a‸\n2. b\n3. c");
+MDV_assist.enter(buffer);
+tally.same("later numbers follow", show(buffer), "1. a\n2. ‸\n3. b\n4. c");
+buffer = make("- [x] a‸");
+MDV_assist.enter(buffer);
+tally.same("a task continues unchecked", show(buffer), "- [x] a\n- [ ] ‸");
+buffer = make("- ab‸cd");
+MDV_assist.enter(buffer);
+tally.same("Enter in the middle splits the item", show(buffer), "- ab\n- ‸cd");
+buffer = make("- a\n  - ‸");
+MDV_assist.enter(buffer);
+tally.same("an empty nested item steps out", show(buffer), "- a\n- ‸");
+buffer = make("> a‸");
+MDV_assist.enter(buffer);
+tally.same("a quote continues", show(buffer), "> a\n> ‸");
+MDV_assist.enter(buffer);
+tally.same("an empty quote line ends it", show(buffer), "> a\n‸");
+buffer = make("```py‸");
+MDV_assist.enter(buffer);
+tally.same("an opening fence is closed", show(buffer), "```py\n‸\n```");
+buffer = make("```py\nx = 1\n```\n\n```‸");
+MDV_assist.enter(buffer);
+tally.same("a second fence is closed too", show(buffer), "```py\nx = 1\n```\n\n```\n‸\n```");
+buffer = make("```\n  a‸\n```");
+MDV_assist.enter(buffer);
+tally.same("Enter in a fence keeps the indent and nothing else", show(buffer), "```\n  a\n  ‸\n```");
+buffer = make("    x‸");
+MDV_assist.enter(buffer);
+tally.same("a plain indented line keeps its indent", show(buffer), "    x\n    ‸");
+buffer = make("- a‸\n\ntext");
+MDV_assist.enter(buffer);
+buffer.type_text("b");
+tally.same("typing after a continued item", show(buffer), "- a\n- b‸\n\ntext");
+// --- renumbering and nesting ------------------------------------------------------------------
+buffer = make("1. a\n3. c");
+MDV_assist.renumber(buffer, 0);
+tally.same("renumber closes a gap", show(buffer), "‸1. a\n2. c");
+buffer = make("5. a\n1. b\n1. c");
+MDV_assist.renumber(buffer, 0);
+tally.same("the first number is kept", show(buffer), "‸5. a\n6. b\n7. c");
+buffer = make("1. a\n   - x\n2. b");
+MDV_assist.renumber(buffer, 0);
+tally.same("a nested bullet does not break the count", show(buffer), "‸1. a\n   - x\n2. b");
+buffer = make("1. a\n2. b‸");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab nests an item, and the nested list starts at 1", show(buffer), "1. a\n   1. b‸");
+MDV_assist.indent_lines(buffer, true);
+tally.same("Shift-Tab brings it back and renumbers", show(buffer), "1. a\n2. b‸");
+buffer = make("- a\n- b‸");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab nests a bullet", show(buffer), "- a\n  - b‸");
+MDV_assist.indent_lines(buffer, true);
+tally.same("Shift-Tab un-nests it", show(buffer), "- a\n- b‸");
+buffer = make("«- a\n- b»");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab nests every selected item", show(buffer), "«  - a\n  - b»");
+buffer = make("text‸");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab in plain text inserts two spaces", show(buffer), "text  ‸");
+buffer = make("1. a\n2. b\n3. c‸");
+buffer.lines = ["1. a", "3. c"];
+buffer.caret = MDV_edit.Pos(1, 4);
+MDV_assist.renumber(buffer, 1);
+tally.same("deleting an item renumbers", show(buffer), "1. a\n2. c‸");
+// --- pairs and wrapping ---------------------------------------------------------------------------
+buffer = make("‸");
+MDV_assist.type_char(buffer, '(', false);
+tally.same("( pairs", show(buffer), "(‸)");
+MDV_assist.type_char(buffer, ')', false);
+tally.same("typing ) skips the closing one", show(buffer), "()‸");
+buffer = make("(‸)");
+MDV_assist.backspace(buffer);
+tally.same("Backspace in an empty pair deletes both", show(buffer), "‸");
+buffer = make("(a‸)");
+MDV_assist.backspace(buffer);
+tally.same("but not around text", show(buffer), "(‸)");
+buffer = make("‸");
+MDV_assist.type_char(buffer, '[', false);
+MDV_assist.type_char(buffer, 'x', false);
+tally.same("[ pairs and typing goes inside", show(buffer), "[x‸]");
+buffer = make("don‸");
+MDV_assist.type_char(buffer, '\'', false);
+tally.same("an apostrophe after a letter is just an apostrophe", show(buffer), "don'‸");
+buffer = make("‸");
+MDV_assist.type_char(buffer, '"', false);
+tally.same("a quote at the start pairs", show(buffer), "\"‸\"");
+buffer = make("‸");
+MDV_assist.type_char(buffer, '`', false);
+tally.same("` pairs", show(buffer), "`‸`");
+MDV_assist.type_char(buffer, '`', false);
+MDV_assist.type_char(buffer, '`', false);
+tally.same("typing ``` gives three backticks", show(buffer), "```‸");
+buffer = make("a ‸b");
+MDV_assist.type_char(buffer, '(', false);
+tally.same("( before a word does not pair", show(buffer), "a (‸b");
+buffer = make("a «b» c");
+MDV_assist.type_char(buffer, '*', false);
+tally.same("* wraps a selection", show(buffer), "a *«b»* c");
+MDV_assist.type_char(buffer, '*', false);
+tally.same("a second * makes it bold", show(buffer), "a **«b»** c");
+buffer = make("«b»");
+MDV_assist.type_char(buffer, '(', false);
+tally.same("( wraps a selection", show(buffer), "(«b»)");
+buffer = make("a ‸");
+MDV_assist.type_char(buffer, '*', false);
+tally.same("* alone is just *", show(buffer), "a *‸");
+buffer = make("‸");
+MDV_assist.type_char(buffer, '"', true);
+tally.same("smart quotes open", show(buffer), "\u{201c}‸");
+buffer = make("a‸");
+MDV_assist.type_char(buffer, '"', true);
+tally.same("and close", show(buffer), "a\u{201d}‸");
+buffer = make("a -‸");
+MDV_assist.type_char(buffer, '-', true);
+tally.same("smart -- is an en dash", show(buffer), "a \u{2013}‸");
+buffer = make("a -‸");
+MDV_assist.type_char(buffer, '-', false);
+tally.same("and plain by default", show(buffer), "a --‸");
+// --- inline formatting ------------------------------------------------------------------------------
+buffer = make("a «b» c");
+MDV_assist.toggle_inline(buffer, "**");
+tally.same("bold the selection", show(buffer), "a **«b»** c");
+MDV_assist.toggle_inline(buffer, "**");
+tally.same("and take it off again", show(buffer), "a «b» c");
+buffer = make("ab‸c d");
+MDV_assist.toggle_inline(buffer, "**");
+tally.same("bold the word at the caret", show(buffer), "**«abc»** d");
+buffer = make("‸");
+MDV_assist.toggle_inline(buffer, "**");
+tally.same("bold with nothing there is an empty pair", show(buffer), "**‸**");
+buffer = make("a «b» c");
+MDV_assist.toggle_inline(buffer, "`");
+tally.same("code", show(buffer), "a `«b»` c");
+buffer = make("a «**b**» c");
+MDV_assist.toggle_inline(buffer, "**");
+tally.same("a selection that holds the marks loses them", show(buffer), "a «b» c");
+buffer = make("a «b» c");
+MDV_assist.toggle_inline(buffer, "*");
+tally.same("italic", show(buffer), "a *«b»* c");
+buffer = make("a «b» c");
+MDV_assist.toggle_inline(buffer, "~~");
+tally.same("strikethrough", show(buffer), "a ~~«b»~~ c");
+buffer = make("a **«b»** c");
+MDV_assist.toggle_inline(buffer, "*");
+tally.same("italic inside bold wraps rather than unwraps", show(buffer), "a ***«b»*** c");
+// --- headings, links, prefixes --------------------------------------------------------------------------
+buffer = make("text‸");
+MDV_assist.set_heading(buffer, 2);
+tally.same("Alt-2 makes an H2", show(buffer), "## text‸");
+MDV_assist.set_heading(buffer, 2);
+tally.same("again removes it", show(buffer), "text‸");
+buffer = make("## t‸");
+MDV_assist.set_heading(buffer, 1);
+tally.same("a heading changes level", show(buffer), "# t‸");
+buffer = make("«site»");
+MDV_assist.insert_link(buffer, false);
+tally.same("a link over the selection, url selected", show(buffer), "[site](«url»)");
+buffer = make("‸");
+MDV_assist.insert_link(buffer, true);
+tally.same("an image with nothing selected", show(buffer), "![‸](url)");
+buffer = make("«a\nb»");
+MDV_assist.toggle_prefix(buffer, "bullet");
+tally.same("bullets on two lines", show(buffer), "«- a\n- b»");
+MDV_assist.toggle_prefix(buffer, "bullet");
+tally.same("and off again", show(buffer), "«a\nb»");
+buffer = make("«a\nb»");
+MDV_assist.toggle_prefix(buffer, "number");
+tally.same("numbers", show(buffer), "«1. a\n2. b»");
+MDV_assist.toggle_prefix(buffer, "task");
+tally.same("numbers become tasks", show(buffer), "«- [ ] a\n- [ ] b»");
+buffer = make("a‸");
+MDV_assist.toggle_prefix(buffer, "quote");
+tally.same("quote", show(buffer), "> a‸");
+buffer = make("‸");
+MDV_assist.insert_code_block(buffer);
+tally.same("an empty code block", show(buffer), "```\n‸\n```");
+buffer = make("«a\nb»");
+MDV_assist.insert_code_block(buffer);
+tally.same("a code block around lines", show(buffer), "```\na\nb\n```‸");
+buffer = make("‸");
+MDV_assist.insert_table(buffer);
+tally.same("a table skeleton", buffer.text(), "| Column 1 | Column 2 |\n| -------- | -------- |\n|          |          |\n");
+tally.same("with the first header selected", buffer.selected_text(), "Column 1");
+// --- paste ---------------------------------------------------------------------------------------------
+buffer = make("«site»");
+MDV_assist.paste(buffer, "https://x.y/z", "");
+tally.same("a URL over a selection makes a link", show(buffer), "[site](https://x.y/z)‸");
+buffer = make("a ‸");
+MDV_assist.paste(buffer, "https://x.y/z", "");
+tally.same("a URL over nothing is just text", show(buffer), "a https://x.y/z‸");
+buffer = make("‸");
+MDV_assist.paste(buffer, "/p/a.png", "image");
+tally.same("an image path is an image", show(buffer), "![a.png](/p/a.png)‸");
+buffer = make("‸");
+MDV_assist.paste(buffer, "one\r\ntwo", "");
+tally.same("CRLF is normalised", show(buffer), "one\ntwo‸");
+buffer = make("1. a‸\n2. b");
+MDV_assist.paste(buffer, "\n1. x", "");
+tally.same("a pasted item renumbers the list", show(buffer), "1. a\n2. x‸\n3. b");
+// --- tables ------------------------------------------------------------------------------------------------
+buffer = make("|a|bb|\n|-|-|\n|ccc|d‸|");
+MDV_assist.table_align(buffer, 2);
+tally.same("a table lines up and the caret stays in its cell", show(buffer), "| a   | bb  |\n| --- | --- |\n| ccc | d‸   |");
+buffer = make("| a | b |\n|:--|--:|\n| 1 | 22 |");
+MDV_assist.table_align(buffer, 0);
+tally.same("alignment survives", buffer.text(), "| a   |   b |\n| :-- | --: |\n| 1   |  22 |\n");
+buffer = make("| a | b |\n| - | - |\n| 1‸ | 2 |");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab moves to the next cell", show(buffer), "| a   | b   |\n| --- | --- |\n| 1   | ‸2   |");
+MDV_assist.indent_lines(buffer, false);
+tally.same("Tab at the last cell adds a row", show(buffer), "| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| ‸    |     |");
+MDV_assist.indent_lines(buffer, true);
+tally.same("Shift-Tab goes back", show(buffer), "| a   | b   |\n| --- | --- |\n| 1   | ‸2   |\n|     |     |");
+buffer = make("| a | b |\n| - | - |\n| 1 | 2 |‸");
+MDV_assist.enter(buffer);
+tally.same("Enter at the end of a row adds a row", show(buffer), "| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| ‸    |     |");
+buffer = make("| a |\n| - |\n| x |\n|   |‸");
+MDV_assist.enter(buffer);
+tally.same("Enter on an empty row ends the table", show(buffer), "| a   |\n| --- |\n| x   |\n‸");
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

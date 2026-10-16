@@ -78,6 +78,8 @@ pub const int BORDER = 68719476736;
 pub const int SELECTED = 137438953472;
 /// The text cursor's cell, in the editor.
 pub const int CARET = 274877906944;
+/// Raw markdown source (Source mode, and the block being edited in Live).
+pub const int RAW = 549755813888;
 
 /// The syntax class bits of class number `class_value` (0..11).
 pub int syntax_style(int class_value) {
@@ -244,7 +246,10 @@ pub type Row {
     /// (OSC 66) heading covers, -1 on the rows after it. The text of the
     /// heading is in the spans of the first row.
     pub int big = 0;
-    /// The source line of the block this row belongs to (1-based); 0 when
+    /// For a source row: the byte offset of the row's text in its source
+    /// line (rows of one wrapped line have increasing offsets).
+    pub int col = 0;
+    /// The source line of the block this row is_listy to (1-based); 0 when
     /// the row is chrome between blocks.
     pub int line = 0;
     /// Which leaf block, in document order; -1 for a row between blocks.

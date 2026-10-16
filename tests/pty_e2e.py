@@ -185,6 +185,13 @@ KEYS = {
     "tab": "\t", "backtab": "\x1b[Z", "backspace": "\x7f", "space": " ",
     "down": "\x1b[B", "up": "\x1b[A", "pgdn": "\x1b[6~", "pgup": "\x1b[5~",
     "home": "\x1b[H", "end": "\x1b[F",
+    "ctrl-s": "\x13", "ctrl-q": "\x11", "ctrl-z": "\x1a", "ctrl-y": "\x19", "ctrl-a": "\x01",
+    "ctrl-b": "\x02", "ctrl-p": "\x10", "ctrl-f": "\x06", "ctrl-r": "\x12", "ctrl-k": "\x0b",
+    "alt-s": "\x1bs", "alt-l": "\x1bl", "alt-p": "\x1bp", "alt-a": "\x1ba", "alt-2": "\x1b2",
+    "left": "\x1b[D", "right": "\x1b[C", "delete": "\x1b[3~", "shift-tab": "\x1b[Z",
+    "shift-right": "\x1b[1;2C", "shift-left": "\x1b[1;2D", "shift-end": "\x1b[1;2F", "shift-home": "\x1b[1;2H",
+    "ctrl-end": "\x1b[1;5F", "ctrl-home": "\x1b[1;5H", "ctrl-left": "\x1b[1;5D", "ctrl-right": "\x1b[1;5C",
+    "f2": "\x1bOQ",
 }
 
 
@@ -243,6 +250,10 @@ class Session:
                 i += 1
         os.write(self.master, out.encode())
         self.drain(0.25)
+
+    def paste(self, text):
+        os.write(self.master, ("\x1b[200~" + text + "\x1b[201~").encode())
+        self.drain(0.3)
 
     def mouse(self, kind, col, row, mods=0):
         """An SGR (1006) report: kind is down, up, drag, move, wheel-up or wheel-down; col and row are 1-based."""
@@ -313,7 +324,7 @@ def main():
     # --- start up, scroll, jump ---------------------------------------------
     s = Session(binary, [tour])
     check("startup: the title is in the banner", "The Tour" in s.screen.lines()[2], s.text())
-    check("startup: the header has the outline button and theme", "☰" in s.head() and "dark" in s.head(), s.head())
+    check("startup: the header has the outline button and theme", "\u2261" in s.head() and "dark" in s.head(), s.head())
     check("startup: status names the file", "tour.md" in s.status() and "0%" in s.status(), s.status())
     s.send("j")
     check("j scrolls one line", "The Tour" in s.top(), s.text())
@@ -330,10 +341,10 @@ def main():
     check("Ctrl-d moves half a page", "The Tour" not in s.screen.lines()[2], s.top())
     s.send("{ctrl-u}")
     check("Ctrl-u moves back", "The Tour" in s.screen.lines()[2])
-    s.send("{ctrl-f}")
+    s.send("{pgdn}")
     pos_f = s.top()
-    s.send("{ctrl-b}")
-    check("Ctrl-f / Ctrl-b page", pos_f != s.top() and "The Tour" in s.screen.lines()[2], pos_f)
+    s.send("{pgup}")
+    check("PgDn / PgUp page", pos_f != s.top() and "The Tour" in s.screen.lines()[2], pos_f)
     s.send("{pgdn}")
     check("PgDn pages", "The Tour" not in s.screen.lines()[2])
     s.send("{home}")
@@ -580,6 +591,151 @@ def main():
     s = Session(binary, [tour], env={"TERM_PROGRAM": "Apple_Terminal"})
     check("no OSC 8 or OSC 66 on Terminal.app", not s.screen.linkmap and not s.screen.scaled)
     s.send("q")
+    s.finish()
+
+    # --- editing: typing, saving, undo ----------------------------------------------------
+    blank = os.path.join(scratch, "blank.md")
+    open(blank, "w").close()
+    s = Session(binary, ["--mode", "source", blank])
+    check("Source: the toolbar is on screen", "link" in s.screen.lines()[1] and "H1" in s.screen.lines()[1], s.screen.lines()[1])
+    check("Source: the header names the pane", "Source" in s.head() and "Preview" in s.head() and "Live" in s.head(), s.head())
+    s.send("# Hi\r\r- a\rb")
+    check("typing and Enter put text on screen", "# Hi" in s.text() and "- a" in s.text() and "- b" in s.text(), s.text())
+    check("a list item continues", s.screen.lines()[5].strip().startswith("- b"), s.text())
+    check("unsaved changes show a dot", "\u25cf" in s.head() and "Ln 4, Col 4" in s.status(), s.head() + " | " + s.status())
+    s.send("{ctrl-s}")
+    check("Ctrl-S says saved", "saved" in s.status(), s.status())
+    check("the dot goes", "\u25cf" not in s.head(), s.head())
+    check("the file has the text and its final newline", open(blank).read() == "# Hi\n\n- a\n- b\n", repr(open(blank).read()))
+    s.send("{ctrl-a}x")
+    check("typing over a selection replaces it", open(blank).read() == "# Hi\n\n- a\n- b\n" and "x" in s.text() and "# Hi" not in s.text(), s.text())
+    s.send("{ctrl-z}")
+    check("Ctrl-Z undoes it", "# Hi" in s.text() and "\u25cf" not in s.head(), s.text())
+    s.send("{ctrl-y}")
+    check("Ctrl-Y redoes it", "# Hi" not in s.text())
+    s.send("{ctrl-z}")
+    s.send("{ctrl-end}{alt-2}")
+    check("Alt-2 makes the line a heading", "## - b" in s.text(), s.text())
+    s.send("{ctrl-q}")
+    check("quitting with changes asks", "Unsaved changes" in s.status(), s.status())
+    s.send("{esc}")
+    check("Esc stays", s.proc.poll() is None and "Unsaved" not in s.status())
+    s.send("{ctrl-q}")
+    s.send("d")
+    check("D discards and quits", s.finish() == 0)
+    check("and the file is as it was saved", open(blank).read() == "# Hi\n\n- a\n- b\n")
+
+    # --- editing: selection, formatting, mouse -----------------------------------------------------
+    doc = os.path.join(scratch, "fmt.md")
+    with open(doc, "w") as f:
+        f.write("hello world\nsecond line\n")
+    s = Session(binary, ["--mode", "source", doc])
+    s.send("{shift-right}{shift-right}{shift-right}{shift-right}{shift-right}")
+    s.send("{ctrl-b}")
+    check("Ctrl-B bolds the selection", "**hello** world" in s.text(), s.text())
+    s.send("{ctrl-z}")
+    s.send("{end}{shift-home}")
+    s.send("{ctrl-b}")
+    check("Home selects back to the indent, so it bolds the line", s.screen.lines()[2].strip().startswith("**hello world**"), s.text())
+    s.send("{ctrl-z}")
+    # toolbar: select a word, click the B button
+    row = s.screen.lines()[2]
+    col = row.index("hello")
+    s.mouse("down", col + 1, 3)
+    s.mouse("drag", col + 5, 3)
+    s.mouse("up", col + 5, 3)
+    tool = s.screen.lines()[1]
+    bcol = tool.index(" B ") + 2
+    s.click(bcol, 2)
+    check("the toolbar B button bolds the dragged selection", "**hell**o world" in s.text(), s.text())
+    s.send("{ctrl-z}")
+    # double click selects a word, then typing replaces it
+    s.mouse("down", col + 2, 3)
+    s.mouse("up", col + 2, 3)
+    s.mouse("down", col + 2, 3)
+    s.mouse("up", col + 2, 3)
+    s.send("X")
+    check("a double click selects a word and typing replaces it", s.screen.lines()[2].strip().startswith("X world"), s.text())
+    s.send("{ctrl-z}")
+    # paste over a selection
+    s.send("{ctrl-home}{shift-right}{shift-right}{shift-right}{shift-right}{shift-right}")
+    s.paste("https://example.com")
+    check("pasting a URL over a selection makes a link", "[hello](https://example.com) world" in s.text(), s.text())
+    s.send("{ctrl-z}")
+    # find and replace
+    s.send("{ctrl-r}")
+    check("Ctrl-R opens find and replace", "Find:" in s.text() and "Replace:" in s.text(), s.text())
+    s.send("l")
+    s.send("{tab}L")
+    s.send("{alt-a}")
+    check("replace all", "heLLo worLd" in s.text() and "second Line" in s.text(), s.text())
+    s.send("{esc}")
+    s.send("{ctrl-z}")
+    check("and it is one undo step", "hello world" in s.text() and "second line" in s.text(), s.text())
+    # palette
+    s.send("{ctrl-p}")
+    check("Ctrl-P opens the palette", "Command palette" in s.text() and "View: Preview" in s.text(), s.text())
+    s.send("heading 3")
+    s.send("\r")
+    check("the palette runs an action", s.screen.lines()[2].strip().startswith("### hello world"), s.text())
+    s.send("{ctrl-p}theme nightf")
+    check("the palette filters", "Theme: nightfox" in s.text() and "Theme: tokyonight" not in s.text(), s.text())
+    s.send("\r")
+    check("and a theme can be chosen", "nightfox" in s.head(), s.head())
+    s.send("{ctrl-s}")
+    s.send("{ctrl-q}")
+    check("a saved file quits at once", s.finish() == 0)
+    check("the heading is in the file", open(doc).read().startswith("### hello world\n"), open(doc).read())
+
+    # --- Live ------------------------------------------------------------------------------------------
+    doc = os.path.join(scratch, "live.md")
+    with open(doc, "w") as f:
+        f.write("# Title\n\nSome *text* here.\n\n- one\n- two\n")
+    s = Session(binary, ["--mode", "live", doc])
+    check("Live: the block with the caret is source, the rest rendered", "# Title" in s.text() and "Some text here." in s.text() and "Some *text*" not in s.text(), s.text())
+    lines = s.screen.lines()
+    row_index = [i for i, l in enumerate(lines) if "Some text here." in l][0]
+    s.click(lines[row_index].index("Some") + 3, row_index + 1)
+    check("clicking a rendered block turns it into source", "Some *text* here." in s.text() and "# Title" not in s.text(), s.text())
+    s.send("{end} More")
+    s.send("{alt-p}")
+    check("Preview shows what was typed in Live", "Some text here. More" in s.text(), s.text())
+    s.send("{ctrl-s}")
+    check("and it is saved", "Some *text* here. More" in open(doc).read(), open(doc).read())
+    s.send("q")
+    s.finish()
+
+    # --- Preview: checkboxes and the edit key ---------------------------------------------------------------
+    doc = os.path.join(scratch, "tasks.md")
+    with open(doc, "w") as f:
+        f.write("# Tasks\n\n- [ ] first\n- [x] second\n")
+    s = Session(binary, [doc])
+    lines = s.screen.lines()
+    row_index = [i for i, l in enumerate(lines) if "first" in l][0]
+    s.click(lines[row_index].index("\u2610") + 1, row_index + 1)
+    check("clicking a checkbox in Preview ticks it", "\u2611 first" in s.text() and "toggled" in s.status(), s.text() + s.status())
+    check("it is a change to save", "\u25cf" in s.head(), s.head())
+    s.send("{ctrl-s}")
+    check("saved with the box ticked", "- [x] first" in open(doc).read() and "- [x] second" in open(doc).read(), open(doc).read())
+    s.send("{ctrl-z}")
+    check("a tick can be undone", "\u2610 first" in s.text(), s.text())
+    s.send("q")
+    s.finish()
+
+    # --- the file changes under unsaved edits --------------------------------------------------------------------
+    doc = os.path.join(scratch, "race.md")
+    with open(doc, "w") as f:
+        f.write("original\n")
+    s = Session(binary, ["--mode", "source", doc])
+    s.send("X")
+    time.sleep(0.05)
+    with open(doc, "w") as f:
+        f.write("changed elsewhere\n")
+    check("a change on disk under edits asks", s.wait_for("changed on disk", 3.0), s.status())
+    s.send("k")
+    check("K keeps my version", "Xoriginal" in s.text(), s.text())
+    s.send("{ctrl-q}")
+    s.send("d")
     s.finish()
 
     # --- a missing file -------------------------------------------------------------------------

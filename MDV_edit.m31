@@ -1,0 +1,803 @@
+// The editing core: lines of text, a caret, a selection, and undo.
+//
+// No terminal, no layout, no markdown in here; `MDV_assist` adds the markdown
+// rules and `MDV_viewer` the keys and the screen. Everything that changes the
+// text goes through `splice`, which records what it removed and what it put
+// in its place, so undo is the same call run backwards.
+//
+// API
+// ---
+//   MDV_edit.Pos(row, col)           0-based row, byte column on a grapheme boundary
+//   MDV_edit.Buffer.of(text)         a buffer for file text (lines split on \n)
+//   buffer.text()                    the text back (what a save writes)
+//   buffer.splice(from, to, text)    the one mutator; answers where the text ends
+//   buffer.insert(text)              at the caret, over the selection
+//   buffer.delete_back() / delete_forward() / delete_word_back() / delete_word_forward()
+//   buffer.move(Motion, is_extend)      caret motions; `is_extend` grows the selection
+//   buffer.begin(kind) / seal()      open or close an undo group (see below)
+//   buffer.did_undo() / redo()           walk the groups; the caret lands where it was
+//   buffer.is_dirty()                has the text changed since `mark_saved`
+//
+// Undo groups. A command opens a group with `begin(kind)` and every splice
+// until `seal()` is_listy to it. Typing ("type") joins the open group while the
+// caret has not moved away, so a run of letters is one undo step; every other
+// kind starts a group of its own, and moving the caret seals the open one.
+
+import tui.core.TUI_text;
+import tui.core.TUI_word;
+
+/// A position: `col` is a byte offset on a grapheme boundary, and may equal
+/// the line's size (after the last character).
+pub type Pos {
+    pub int row;
+    pub int col;
+}
+
+pub int Pos.cmp(Pos other) {
+    if (row != other.row) {
+        if (row < other.row) {
+            return -1;
+        }
+        return 1;
+    }
+    if (col != other.col) {
+        if (col < other.col) {
+            return -1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+pub bool Pos.eq(Pos other) {
+    return row == other.row && col == other.col;
+}
+
+pub str Pos.to_str() {
+    return str(row) + ":" + str(col);
+}
+
+/// One splice: `removed` was at `from`, `inserted` took its place.
+pub type Edit {
+    pub Pos from;
+    pub str removed;
+    pub str inserted;
+}
+
+/// The edits of one command and where the caret was either side of them.
+pub type Group {
+    pub str kind;
+    pub List<Edit> edits;
+    pub Pos before;
+    pub Pos after;
+    pub int rev_before;
+    pub int rev_after;
+}
+
+/// Where a caret motion goes.
+pub enum Motion {
+    Left;
+    Right;
+    WordLeft;
+    WordRight;
+    LineStart;
+    LineEnd;
+    /// First non-blank, then column 0 (Home in an editor).
+    SmartHome;
+    DocStart;
+    DocEnd;
+    /// Up or down by logical lines, keeping the wanted column.
+    LineUp;
+    LineDown;
+}
+
+pub type Buffer {
+    pub List<str> lines = [""];
+    pub Pos caret = Pos(0, 0);
+    pub bool has_anchor = false;
+    pub Pos anchor = Pos(0, 0);
+    /// Display column kept across vertical moves, -1 for none.
+    pub int want = -1;
+    pub int revision = 0;
+    pub int saved_revision = 0;
+    /// Did the file end with a newline? Kept on save.
+    pub bool has_final_newline = true;
+    pub List<Group> undo_groups = [];
+    pub List<Group> redo_groups = [];
+    pub bool is_open = false;
+    pub int counter = 0;
+    /// Is the buffer applying undo or redo (so splice records nothing)?
+    pub bool is_replaying = false;
+    /// The first row any splice has touched since the owner last reset this
+    /// (what a highlight cache must forget from).
+    pub int dirty_from = 1000000000;
+}
+
+/// A buffer holding `source`.
+pub static Buffer Buffer.of(str source) {
+    Buffer out = Buffer();
+    str body = source;
+    if (body.ends_with("\n")) {
+        body = body.substr(0, body.size() - 1);
+        out.has_final_newline = true;
+    } else {
+        out.has_final_newline = body.size() == 0;
+    }
+    body = body.split("\r\n").join("\n");
+    out.lines = body.split("\n");
+    return out;
+}
+
+/// The text of the buffer, with the final newline the file had.
+pub str Buffer.text() {
+    str body = lines.join("\n");
+    if (has_final_newline) {
+        return body + "\n";
+    }
+    return body;
+}
+
+pub int Buffer.line_count() {
+    return lines.size();
+}
+
+pub bool Buffer.is_dirty() {
+    return revision != saved_revision;
+}
+
+pub void Buffer.mark_saved() {
+    saved_revision = revision;
+}
+
+/// The ordered ends of the selection; both the caret when there is none.
+pub Pos Buffer.sel_start() {
+    if (has_anchor && anchor.cmp(caret) < 0) {
+        return anchor;
+    }
+    return caret;
+}
+
+pub Pos Buffer.sel_end() {
+    if (has_anchor && anchor.cmp(caret) > 0) {
+        return anchor;
+    }
+    return caret;
+}
+
+pub bool Buffer.has_selection() {
+    return has_anchor && !anchor.eq(caret);
+}
+
+/// The text from `from` to `to`, lines joined with `\n`.
+pub str Buffer.text_between(Pos from, Pos upto) {
+    if (from.row == upto.row) {
+        return lines[from.row].substr(from.col, upto.col);
+    }
+    List<str> parts = [lines[from.row].substr(from.col, lines[from.row].size())];
+    for (int row in from.row + 1 .. upto.row) {
+        parts.push(lines[row]);
+    }
+    parts.push(lines[upto.row].substr(0, upto.col));
+    return parts.join("\n");
+}
+
+pub str Buffer.selected_text() {
+    if (!has_selection()) {
+        return "";
+    }
+    return text_between(sel_start(), sel_end());
+}
+
+pub void Buffer.clear_selection() {
+    has_anchor = false;
+}
+
+/// Select `from` to `to`, the caret at `to`.
+pub void Buffer.select(Pos from, Pos upto) {
+    anchor = from;
+    has_anchor = true;
+    caret = upto;
+    want = -1;
+}
+
+pub void Buffer.select_all() {
+    seal();
+    select(Pos(0, 0), Pos(lines.size() - 1, lines[lines.size() - 1].size()));
+}
+
+/// A position clamped into the text.
+pub Pos Buffer.clamp(Pos target) {
+    int row = target.row;
+    if (row < 0) {
+        return Pos(0, 0);
+    }
+    if (row >= lines.size()) {
+        return Pos(lines.size() - 1, lines[lines.size() - 1].size());
+    }
+    return Pos(row, snap_col(lines[row], target.col));
+}
+
+/// Replace `from` .. `to` with `inserted`; answers where the inserted text
+/// ends. The caret is not moved: the caller says where it goes.
+pub Pos Buffer.splice(Pos from, Pos upto, str inserted) {
+    str removed = text_between(from, upto);
+    if (from.row < dirty_from) {
+        dirty_from = from.row;
+    }
+    List<str> fresh = inserted.split("\n");
+    str head = lines[from.row].substr(0, from.col);
+    str tail = lines[upto.row].substr(upto.col, lines[upto.row].size());
+    Pos finish = Pos(from.row, 0);
+    if (fresh.size() == 1 && from.row == upto.row) {
+        lines[from.row] = head + fresh[0] + tail;
+        finish = Pos(from.row, from.col + fresh[0].size());
+    } else {
+        List<str> rebuilt = [];
+        for (int row in 0 .. from.row) {
+            rebuilt.push(lines[row]);
+        }
+        if (fresh.size() == 1) {
+            rebuilt.push(head + fresh[0] + tail);
+            finish = Pos(from.row, from.col + fresh[0].size());
+        } else {
+            rebuilt.push(head + fresh[0]);
+            for (int piece in 1 .. fresh.size() - 1) {
+                rebuilt.push(fresh[piece]);
+            }
+            rebuilt.push(fresh[fresh.size() - 1] + tail);
+            finish = Pos(from.row + fresh.size() - 1, fresh[fresh.size() - 1].size());
+        }
+        for (int row in upto.row + 1 .. lines.size()) {
+            rebuilt.push(lines[row]);
+        }
+        lines = rebuilt;
+    }
+    if (!is_replaying) {
+        if (!is_open) {
+            open_group("edit");
+        }
+        undo_groups[undo_groups.size() - 1].edits.push(Edit(from, removed, inserted));
+        revision = undo_groups[undo_groups.size() - 1].rev_after;
+    }
+    return finish;
+}
+
+void Buffer.open_group(str kind) {
+    Group group = Group(kind, [], caret, caret, revision, fresh_revision());
+    undo_groups.push(group);
+    redo_groups = [];
+    is_open = true;
+}
+
+int Buffer.fresh_revision() {
+    counter = counter + 1;
+    return counter;
+}
+
+/// Start (or, for typing, continue) an undo group of `kind`.
+pub void Buffer.begin(str kind) {
+    if (is_open && kind == "type" && undo_groups.size() > 0) {
+        Group last = undo_groups[undo_groups.size() - 1];
+        if (last.kind == "type" && last.after.eq(caret)) {
+            return;
+        }
+    }
+    is_open = false;
+    open_group(kind);
+}
+
+/// Record the caret as the end of the open group.
+pub void Buffer.finish() {
+    if (is_open && undo_groups.size() > 0) {
+        undo_groups[undo_groups.size() - 1].after = caret;
+    }
+}
+
+/// Close the open group: the next edit starts a new undo step.
+pub void Buffer.seal() {
+    finish();
+    is_open = false;
+}
+
+void Buffer.apply_inverse(Edit edit) {
+    Pos finish_position = advance(edit.from, edit.inserted);
+    is_replaying = true;
+    Pos ignored = splice(edit.from, finish_position, edit.removed);
+    is_replaying = false;
+}
+
+void Buffer.apply_again(Edit edit) {
+    Pos after_position = advance(edit.from, edit.removed);
+    is_replaying = true;
+    Pos ignored = splice(edit.from, after_position, edit.inserted);
+    is_replaying = false;
+}
+
+/// Undo the last group; false when there is none.
+pub bool Buffer.did_undo() {
+    seal();
+    if (undo_groups.size() == 0) {
+        return false;
+    }
+    Group group = undo_groups.pop();
+    int index = group.edits.size();
+    while (index > 0) {
+        index = index - 1;
+        apply_inverse(group.edits[index]);
+    }
+    revision = group.rev_before;
+    redo_groups.push(group);
+    has_anchor = false;
+    caret = clamp(group.before);
+    want = -1;
+    return true;
+}
+
+/// Redo the last undone group; false when there is none.
+pub bool Buffer.did_redo() {
+    seal();
+    if (redo_groups.size() == 0) {
+        return false;
+    }
+    Group group = redo_groups.pop();
+    for (Edit edit in group.edits) {
+        apply_again(edit);
+    }
+    revision = group.rev_after;
+    undo_groups.push(group);
+    has_anchor = false;
+    caret = clamp(group.after);
+    want = -1;
+    return true;
+}
+
+/// Remove the selection (caret to its start); true when there was one.
+pub bool Buffer.did_delete_selection() {
+    if (!has_selection()) {
+        has_anchor = false;
+        return false;
+    }
+    Pos first = sel_start();
+    Pos last = sel_end();
+    Pos ignored = splice(first, last, "");
+    caret = first;
+    has_anchor = false;
+    want = -1;
+    return true;
+}
+
+/// Put `text` at the caret, over the selection, the caret after it.
+pub void Buffer.insert(str text) {
+    if (text.size() == 0 && !has_selection()) {
+        return;
+    }
+    Pos first = sel_start();
+    Pos last = sel_end();
+    Pos finish_position = splice(first, last, text);
+    caret = finish_position;
+    has_anchor = false;
+    want = -1;
+}
+
+/// Type `text` as one undo-joinable run (letters, spaces).
+pub void Buffer.type_text(str text) {
+    if (has_selection()) {
+        begin("replace");
+    } else {
+        begin("type");
+    }
+    insert(text);
+    finish();
+}
+
+pub void Buffer.delete_back() {
+    if (has_selection()) {
+        begin("delete");
+        bool did_ignore = did_delete_selection();
+        finish();
+        return;
+    }
+    if (caret.row == 0 && caret.col == 0) {
+        return;
+    }
+    begin("delete");
+    Pos from = Pos(caret.row, previous_col(lines[caret.row], caret.col));
+    if (caret.col == 0) {
+        from = Pos(caret.row - 1, lines[caret.row - 1].size());
+    }
+    Pos ignored = splice(from, caret, "");
+    caret = from;
+    want = -1;
+    finish();
+}
+
+pub void Buffer.delete_forward() {
+    if (has_selection()) {
+        begin("delete");
+        bool did_ignore = did_delete_selection();
+        finish();
+        return;
+    }
+    str line = lines[caret.row];
+    if (caret.col >= line.size() && caret.row + 1 >= lines.size()) {
+        return;
+    }
+    begin("delete");
+    Pos upto = Pos(caret.row, next_col(line, caret.col));
+    if (caret.col >= line.size()) {
+        upto = Pos(caret.row + 1, 0);
+    }
+    Pos ignored = splice(caret, upto, "");
+    want = -1;
+    finish();
+}
+
+pub Pos Buffer.word_left_of(Pos from) {
+    if (from.col == 0) {
+        if (from.row == 0) {
+            return from;
+        }
+        return Pos(from.row - 1, lines[from.row - 1].size());
+    }
+    List<str> glyphs = TUI_text.clusters(lines[from.row]);
+    int index = glyph_index(glyphs, from.col);
+    int target = TUI_word.previous_word(glyphs, index);
+    return Pos(from.row, bytes_before(glyphs, target));
+}
+
+pub Pos Buffer.word_right_of(Pos from) {
+    str line = lines[from.row];
+    if (from.col >= line.size()) {
+        if (from.row + 1 >= lines.size()) {
+            return from;
+        }
+        return Pos(from.row + 1, 0);
+    }
+    List<str> glyphs = TUI_text.clusters(line);
+    int index = glyph_index(glyphs, from.col);
+    int target = TUI_word.next_word(glyphs, index);
+    return Pos(from.row, bytes_before(glyphs, target));
+}
+
+pub void Buffer.delete_word_back() {
+    if (has_selection()) {
+        delete_back();
+        return;
+    }
+    Pos from = word_left_of(caret);
+    if (from.eq(caret)) {
+        return;
+    }
+    begin("delete");
+    Pos ignored = splice(from, caret, "");
+    caret = from;
+    want = -1;
+    finish();
+}
+
+pub void Buffer.delete_word_forward() {
+    if (has_selection()) {
+        delete_forward();
+        return;
+    }
+    Pos upto = word_right_of(caret);
+    if (upto.eq(caret)) {
+        return;
+    }
+    begin("delete");
+    Pos ignored = splice(caret, upto, "");
+    want = -1;
+    finish();
+}
+
+/// Move the caret; with `is_extend` the selection grows from where it was.
+pub void Buffer.move(Motion motion, bool is_extend) {
+    seal();
+    if (is_extend && !has_anchor) {
+        anchor = caret;
+        has_anchor = true;
+    }
+    bool is_vertical = false;
+    // A plain Left or Right with a selection goes to its edge.
+    if (!is_extend && has_selection()) {
+        match (motion) {
+            case Left: {
+                caret = sel_start();
+                has_anchor = false;
+                want = -1;
+                return;
+            }
+            case Right: {
+                caret = sel_end();
+                has_anchor = false;
+                want = -1;
+                return;
+            }
+            case WordLeft: {
+            }
+            case WordRight: {
+            }
+            case LineStart: {
+            }
+            case LineEnd: {
+            }
+            case SmartHome: {
+            }
+            case DocStart: {
+            }
+            case DocEnd: {
+            }
+            case LineUp: {
+            }
+            case LineDown: {
+            }
+        }
+    }
+    str line = lines[caret.row];
+    match (motion) {
+        case Left: {
+            if (caret.col > 0) {
+                caret = Pos(caret.row, previous_col(line, caret.col));
+            } else if (caret.row > 0) {
+                caret = Pos(caret.row - 1, lines[caret.row - 1].size());
+            }
+        }
+        case Right: {
+            if (caret.col < line.size()) {
+                caret = Pos(caret.row, next_col(line, caret.col));
+            } else if (caret.row + 1 < lines.size()) {
+                caret = Pos(caret.row + 1, 0);
+            }
+        }
+        case WordLeft: {
+            caret = word_left_of(caret);
+        }
+        case WordRight: {
+            caret = word_right_of(caret);
+        }
+        case LineStart: {
+            caret = Pos(caret.row, 0);
+        }
+        case LineEnd: {
+            caret = Pos(caret.row, line.size());
+        }
+        case SmartHome: {
+            int first = indent_of(line);
+            if (caret.col == first) {
+                caret = Pos(caret.row, 0);
+            } else {
+                caret = Pos(caret.row, first);
+            }
+        }
+        case DocStart: {
+            caret = Pos(0, 0);
+        }
+        case DocEnd: {
+            caret = Pos(lines.size() - 1, lines[lines.size() - 1].size());
+        }
+        case LineUp: {
+            is_vertical = true;
+            if (want < 0) {
+                want = display_col(line, caret.col);
+            }
+            if (caret.row > 0) {
+                caret = Pos(caret.row - 1, col_for_width(lines[caret.row - 1], want));
+            } else {
+                caret = Pos(0, 0);
+            }
+        }
+        case LineDown: {
+            is_vertical = true;
+            if (want < 0) {
+                want = display_col(line, caret.col);
+            }
+            if (caret.row + 1 < lines.size()) {
+                caret = Pos(caret.row + 1, col_for_width(lines[caret.row + 1], want));
+            } else {
+                caret = Pos(caret.row, line.size());
+            }
+        }
+    }
+    if (!is_vertical) {
+        want = -1;
+    }
+    if (!is_extend) {
+        has_anchor = false;
+    }
+}
+
+/// Put the caret at `target` (a click), or is_extend the selection to it.
+pub void Buffer.place(Pos target, bool is_extend) {
+    seal();
+    if (is_extend && !has_anchor) {
+        anchor = caret;
+        has_anchor = true;
+    }
+    if (!is_extend) {
+        has_anchor = false;
+    }
+    caret = clamp(target);
+    want = -1;
+}
+
+/// Select the word at `target` (a double click).
+pub void Buffer.select_word(Pos target) {
+    seal();
+    Pos spot = clamp(target);
+    str line = lines[spot.row];
+    List<str> glyphs = TUI_text.clusters(line);
+    if (glyphs.size() == 0) {
+        caret = spot;
+        has_anchor = false;
+        return;
+    }
+    int index = glyph_index(glyphs, spot.col);
+    if (index >= glyphs.size()) {
+        index = glyphs.size() - 1;
+    }
+    int first = index;
+    while (first > 0 && TUI_word.is_word(glyphs[first - 1]) == TUI_word.is_word(glyphs[index])) {
+        first = first - 1;
+    }
+    int last = index + 1;
+    while (last < glyphs.size() && TUI_word.is_word(glyphs[last]) == TUI_word.is_word(glyphs[index])) {
+        last = last + 1;
+    }
+    select(Pos(spot.row, bytes_before(glyphs, first)), Pos(spot.row, bytes_before(glyphs, last)));
+}
+
+/// Select the whole line at `target` (a triple click).
+pub void Buffer.select_line(Pos target) {
+    seal();
+    Pos spot = clamp(target);
+    if (spot.row + 1 < lines.size()) {
+        select(Pos(spot.row, 0), Pos(spot.row + 1, 0));
+    } else {
+        select(Pos(spot.row, 0), Pos(spot.row, lines[spot.row].size()));
+    }
+}
+
+// --- graphemes ---------------------------------------------------------------------
+
+bool is_plain(str text) {
+    for (int index in 0 .. text.size()) {
+        int value = text.byte_at(index);
+        if (value >= 128 || value < 32) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The column after the grapheme that starts at `col` in `line`.
+pub int next_col(str line, int col) {
+    if (col >= line.size()) {
+        return line.size();
+    }
+    if (is_plain(line)) {
+        return col + 1;
+    }
+    int at_col = 0;
+    for (str cluster in TUI_text.clusters(line)) {
+        at_col = at_col + cluster.size();
+        if (at_col > col) {
+            return at_col;
+        }
+    }
+    return line.size();
+}
+
+/// The column of the grapheme before `col`.
+pub int previous_col(str line, int col) {
+    if (col <= 0) {
+        return 0;
+    }
+    if (is_plain(line)) {
+        return col - 1;
+    }
+    int at_col = 0;
+    int last = 0;
+    for (str cluster in TUI_text.clusters(line)) {
+        if (at_col + cluster.size() >= col) {
+            return at_col;
+        }
+        last = at_col;
+        at_col = at_col + cluster.size();
+    }
+    return last;
+}
+
+/// The nearest grapheme boundary at or before `col`.
+pub int snap_col(str line, int col) {
+    if (col >= line.size()) {
+        return line.size();
+    }
+    if (col <= 0) {
+        return 0;
+    }
+    if (is_plain(line)) {
+        return col;
+    }
+    int at_col = 0;
+    for (str cluster in TUI_text.clusters(line)) {
+        if (at_col + cluster.size() > col) {
+            return at_col;
+        }
+        at_col = at_col + cluster.size();
+    }
+    return line.size();
+}
+
+/// Display columns before byte `col` of `line`.
+pub int display_col(str line, int col) {
+    return TUI_text.width(line.substr(0, snap_col(line, col)));
+}
+
+/// The byte column whose display column is at most `want`.
+pub int col_for_width(str line, int want) {
+    if (is_plain(line)) {
+        if (want >= line.size()) {
+            return line.size();
+        }
+        return want;
+    }
+    int used = 0;
+    int at_col = 0;
+    for (str cluster in TUI_text.clusters(line)) {
+        int wide = TUI_text.width(cluster);
+        if (used + wide > want) {
+            return at_col;
+        }
+        used = used + wide;
+        at_col = at_col + cluster.size();
+    }
+    return line.size();
+}
+
+// --- the selection -------------------------------------------------------------------
+
+// --- splice and undo --------------------------------------------------------------------
+
+/// Where `text` ends when it starts at `from`.
+pub Pos advance(Pos from, str text) {
+    List<str> pieces = text.split("\n");
+    if (pieces.size() == 1) {
+        return Pos(from.row, from.col + text.size());
+    }
+    return Pos(from.row + pieces.size() - 1, pieces[pieces.size() - 1].size());
+}
+
+// --- editing -------------------------------------------------------------------------------
+
+/// The index of the cluster that starts at byte `col`.
+int glyph_index(List<str> glyphs, int col) {
+    int used = 0;
+    for (int index in 0 .. glyphs.size()) {
+        if (used >= col) {
+            return index;
+        }
+        used = used + glyphs[index].size();
+    }
+    return glyphs.size();
+}
+
+int bytes_before(List<str> glyphs, int index) {
+    int used = 0;
+    for (int slot in 0 .. index) {
+        used = used + glyphs[slot].size();
+    }
+    return used;
+}
+
+/// The first non-blank column of `line`.
+pub int indent_of(str line) {
+    for (int index in 0 .. line.size()) {
+        int value = line.byte_at(index);
+        if (value != ' ' && value != '\t') {
+            return index;
+        }
+    }
+    return line.size();
+}
+
+// --- motions ----------------------------------------------------------------------------------

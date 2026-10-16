@@ -1,0 +1,1295 @@
+// Markdown-aware editing on top of `MDV_edit`: what Enter, Tab, Backspace and
+// the typed brackets mean in a markdown file.
+//
+//   enter(buffer)              continue a list or quote, end it on an empty
+//                              item, close a code fence, add a table row
+//   indent_lines(buffer, is_back)    Tab / Shift-Tab: nest or un-nest list items
+//   type_char(buffer, char, is_smart)   auto-pairs, wrapping a selection,
+//                              skipping a closing bracket, is_smart typography
+//   backspace(buffer)          deletes an empty pair whole
+//   toggle_inline(buffer, marker)    ** * ` ~~ on the selection or the word
+//   set_heading(buffer, level)       Alt-1 .. Alt-6
+//   insert_link(buffer, is_image)    [text](url) / ![alt](url)
+//   toggle_prefix(buffer, kind)      bullet, number, task, quote on the lines
+//   insert_table(buffer) / insert_code_block(buffer) / insert_rule(buffer)
+//   paste(buffer, text, kind)        a URL over a selection makes a link
+//   renumber(buffer, row)            ordered lists count 1, 2, 3 again
+//   table_align(buffer, row)         pipe tables line up
+//   table_move(buffer, is_forward)   Tab between cells
+//
+// Every function is one undo step (`begin` .. `finish`). All of them work on
+// the buffer's lines and caret only, which is what the unit tests drive.
+
+import MDV_edit;
+import tui.core.TUI_text;
+
+// --- reading a line ---------------------------------------------------------------------
+
+/// What a line is as a list item.
+pub type Item {
+    pub bool is_item = false;
+    /// Columns of leading space.
+    pub int indent = 0;
+    /// The marker's first byte column and its end (before the space after it).
+    pub int marker_start = 0;
+    pub int marker_end = 0;
+    pub bool is_ordered = false;
+    pub int number = 0;
+    /// The `.` or `)` after a number.
+    pub str delim = ".";
+    /// The bullet character.
+    pub str bullet = "-";
+    /// 0 no box, 1 `[ ]`, 2 `[x]`.
+    pub int task = 0;
+    /// Where the item's text begins.
+    pub int content = 0;
+}
+
+bool is_digit(int value) {
+    return value >= '0' && value <= '9';
+}
+
+/// Is `line` a thematic break (`---`, `* * *`)?
+pub bool is_rule(str line) {
+    str trimmed = line.trim();
+    if (trimmed.size() < 3) {
+        return false;
+    }
+    int first = trimmed.byte_at(0);
+    if (first != '-' && first != '*' && first != '_') {
+        return false;
+    }
+    int seen = 0;
+    for (int index in 0 .. trimmed.size()) {
+        int value = trimmed.byte_at(index);
+        if (value == first) {
+            seen = seen + 1;
+        } else if (value != ' ') {
+            return false;
+        }
+    }
+    return seen >= 3;
+}
+
+/// `line` read as a list item.
+pub Item parse_item(str line) {
+    Item out = Item();
+    int index = 0;
+    int size = line.size();
+    while (index < size && line.byte_at(index) == ' ') {
+        index = index + 1;
+    }
+    out.indent = index;
+    out.marker_start = index;
+    if (index >= size || is_rule(line)) {
+        return out;
+    }
+    int value = line.byte_at(index);
+    if ((value == '-' || value == '*' || value == '+') && (index + 1 == size || line.byte_at(index + 1) == ' ')) {
+        out.is_item = true;
+        out.bullet = line.substr(index, index + 1);
+        out.marker_end = index + 1;
+    } else if (is_digit(value)) {
+        int stop = index;
+        while (stop < size && is_digit(line.byte_at(stop)) && stop - index < 9) {
+            stop = stop + 1;
+        }
+        if (stop < size && (line.byte_at(stop) == '.' || line.byte_at(stop) == ')') && (stop + 1 == size || line.byte_at(stop + 1) == ' ')) {
+            out.is_item = true;
+            out.is_ordered = true;
+            out.number = line.substr(index, stop).parse_int().or(1);
+            out.delim = line.substr(stop, stop + 1);
+            out.marker_end = stop + 1;
+        }
+    }
+    if (!out.is_item) {
+        return out;
+    }
+    int content = out.marker_end;
+    if (content < size && line.byte_at(content) == ' ') {
+        content = content + 1;
+    }
+    if (content + 3 <= size && line.byte_at(content) == '[' && line.byte_at(content + 2) == ']' && (content + 3 == size || line.byte_at(content + 3) == ' ')) {
+        int mark = line.byte_at(content + 1);
+        if (mark == ' ') {
+            out.task = 1;
+        } else if (mark == 'x' || mark == 'X') {
+            out.task = 2;
+        }
+        if (out.task > 0) {
+            content = content + 3;
+            if (content < size && line.byte_at(content) == ' ') {
+                content = content + 1;
+            }
+        }
+    }
+    out.content = content;
+    return out;
+}
+
+/// How many fence lines (``` or ~~~) come before `row`.
+int fences_before(MDV_edit.Buffer buffer, int row) {
+    int seen = 0;
+    for (int index in 0 .. row) {
+        if (is_fence(buffer.lines[index])) {
+            seen = seen + 1;
+        }
+    }
+    return seen;
+}
+
+pub bool is_fence(str line) {
+    str trimmed = line.trim();
+    return trimmed.starts_with("```") || trimmed.starts_with("~~~");
+}
+
+/// Is the line `row` inside a fenced block (a fence line itself is not)?
+pub bool is_in_fence(MDV_edit.Buffer buffer, int row) {
+    if (is_fence(buffer.lines[row])) {
+        return false;
+    }
+    return fences_before(buffer, row) % 2 == 1;
+}
+
+str spaces(int count) {
+    if (count <= 0) {
+        return "";
+    }
+    return " ".repeat(count);
+}
+
+/// The text of the line with its caret-side split: what is before and after.
+str before_caret(MDV_edit.Buffer buffer) {
+    return buffer.lines[buffer.caret.row].substr(0, buffer.caret.col);
+}
+
+str after_caret(MDV_edit.Buffer buffer) {
+    str line = buffer.lines[buffer.caret.row];
+    return line.substr(buffer.caret.col, line.size());
+}
+
+/// Replace line `row` wholesale; the caret keeps its place relative to the
+/// end of the line when it is on it.
+void replace_line(MDV_edit.Buffer buffer, int row, str text) {
+    str old = buffer.lines[row];
+    if (old == text) {
+        return;
+    }
+    MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, 0), MDV_edit.Pos(row, old.size()), text);
+    if (buffer.caret.row == row) {
+        int fromend = old.size() - buffer.caret.col;
+        int target = text.size() - fromend;
+        if (target < 0) {
+            target = 0;
+        }
+        buffer.caret = MDV_edit.Pos(row, MDV_edit.snap_col(text, target));
+    }
+}
+
+// --- Enter ------------------------------------------------------------------------------------
+
+/// The `> ` prefix of a quote line (including nested ones), "" when it is not one.
+str quote_prefix(str line) {
+    int index = MDV_edit.indent_of(line);
+    int start = index;
+    bool is_quote = false;
+    while (index < line.size() && line.byte_at(index) == '>') {
+        is_quote = true;
+        index = index + 1;
+        if (index < line.size() && line.byte_at(index) == ' ') {
+            index = index + 1;
+        }
+    }
+    if (!is_quote) {
+        return "";
+    }
+    return line.substr(0, index);
+}
+
+/// Enter: the new line is a continuation of what the caret is in.
+pub void enter(MDV_edit.Buffer buffer) {
+    buffer.begin("enter");
+    bool did_ignore = buffer.did_delete_selection();
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    int column = buffer.caret.col;
+    bool is_at_end = column >= line.size();
+    str indent = line.substr(0, MDV_edit.indent_of(line));
+    if (is_in_fence(buffer, row)) {
+        buffer.insert("\n" + indent);
+        buffer.finish();
+        return;
+    }
+    // An opening fence typed out: close it.
+    if (is_fence(line) && fences_before(buffer, row) % 2 == 0 && is_at_end) {
+        int total = 0;
+        for (str each in buffer.lines) {
+            if (is_fence(each)) {
+                total = total + 1;
+            }
+        }
+        if (total % 2 == 1) {
+            str trimmed = line.trim();
+            int run = 0;
+            int mark = trimmed.byte_at(0);
+            while (run < trimmed.size() && trimmed.byte_at(run) == mark) {
+                run = run + 1;
+            }
+            str closing = trimmed.substr(0, run);
+            buffer.insert("\n" + indent + "\n" + indent + closing);
+            buffer.caret = MDV_edit.Pos(row + 1, indent.size());
+            buffer.finish();
+            return;
+        }
+    }
+    str quote = quote_prefix(line);
+    if (quote.size() > 0 && column >= quote.size()) {
+        if (line.substr(quote.size(), line.size()).trim().size() == 0 && is_at_end) {
+            replace_line(buffer, row, "");
+            buffer.caret = MDV_edit.Pos(row, 0);
+            buffer.finish();
+            return;
+        }
+        buffer.insert("\n" + quote);
+        buffer.finish();
+        return;
+    }
+    Item item = parse_item(line);
+    if (item.is_item && column >= item.content) {
+        bool is_empty_item = line.substr(item.content, line.size()).trim().size() == 0 && is_at_end;
+        if (is_empty_item) {
+            // An empty item ends the list; a nested one steps out a level.
+            if (item.indent > 0) {
+                int step = item.content - item.indent;
+                if (step > item.indent) {
+                    step = item.indent;
+                }
+                replace_line(buffer, row, line.substr(step, line.size()));
+                buffer.caret = MDV_edit.Pos(row, buffer.lines[row].size());
+                renumber(buffer, row);
+            } else {
+                replace_line(buffer, row, "");
+                buffer.caret = MDV_edit.Pos(row, 0);
+            }
+            buffer.finish();
+            return;
+        }
+        str marker = item.bullet;
+        if (item.is_ordered) {
+            marker = str(item.number + 1) + item.delim;
+        }
+        str prefix = spaces(item.indent) + marker + " ";
+        if (item.task > 0) {
+            prefix = prefix + "[ ] ";
+        }
+        buffer.insert("\n" + prefix);
+        renumber(buffer, row);
+        buffer.finish();
+        return;
+    }
+    if (is_table_line(line) && is_at_end && table_range(buffer, row).size() == 2) {
+        table_enter(buffer);
+        buffer.finish();
+        return;
+    }
+    if (line.trim().size() == 0) {
+        buffer.insert("\n");
+    } else {
+        buffer.insert("\n" + indent);
+    }
+    buffer.finish();
+}
+
+// --- lists -------------------------------------------------------------------------------------
+
+/// The first and last row of the list region around `row`: a run of items,
+/// blank lines and indented continuations.
+List<int> list_region(MDV_edit.Buffer buffer, int row) {
+    int first = row;
+    while (first > 0 && is_listy(buffer.lines[first - 1])) {
+        first = first - 1;
+    }
+    int last = row;
+    while (last + 1 < buffer.lines.size() && is_listy(buffer.lines[last + 1])) {
+        last = last + 1;
+    }
+    return [first, last];
+}
+
+bool is_listy(str line) {
+    if (line.trim().size() == 0) {
+        return true;
+    }
+    if (parse_item(line).is_item) {
+        return true;
+    }
+    return line.starts_with("  ") || line.starts_with("\t");
+}
+
+type Level {
+    int indent;
+    bool is_ordered;
+    int next;
+}
+
+/// Count ordered lists 1, 2, 3 again in the list around `row`; the first
+/// number of each list stays what it is.
+pub void renumber(MDV_edit.Buffer buffer, int row) {
+    if (row < 0 || row >= buffer.lines.size()) {
+        return;
+    }
+    List<int> region = list_region(buffer, row);
+    List<Level> levels = [];
+    for (int index in region[0] .. region[1] + 1) {
+        str line = buffer.lines[index];
+        Item item = parse_item(line);
+        if (!item.is_item) {
+            continue;
+        }
+        while (levels.size() > 0 && levels[levels.size() - 1].indent > item.indent) {
+            levels.pop();
+        }
+        int want = item.number;
+        bool is_new = true;
+        if (levels.size() > 0 && levels[levels.size() - 1].indent == item.indent) {
+            Level top = levels[levels.size() - 1];
+            if (top.is_ordered == item.is_ordered) {
+                is_new = false;
+                if (item.is_ordered) {
+                    want = top.next;
+                    top.next = top.next + 1;
+                }
+            } else {
+                levels.pop();
+            }
+        }
+        if (is_new) {
+            levels.push(Level(item.indent, item.is_ordered, item.number + 1));
+        }
+        if (item.is_ordered && want != item.number) {
+            int digits_start = item.marker_start;
+            int digits_end = item.marker_end - 1;
+            str changed = line.substr(0, digits_start) + str(want) + line.substr(digits_end, line.size());
+            replace_line_after(buffer, index, changed, digits_end);
+        }
+    }
+}
+
+/// Like `replace_line`, but a caret at or after `from` shifts with the text.
+void replace_line_after(MDV_edit.Buffer buffer, int row, str text, int from) {
+    str old = buffer.lines[row];
+    int delta = text.size() - old.size();
+    MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, 0), MDV_edit.Pos(row, old.size()), text);
+    if (buffer.caret.row == row && buffer.caret.col >= from) {
+        buffer.caret = MDV_edit.Pos(row, buffer.caret.col + delta);
+    }
+    if (buffer.has_anchor && buffer.anchor.row == row && buffer.anchor.col >= from) {
+        buffer.anchor = MDV_edit.Pos(row, buffer.anchor.col + delta);
+    }
+}
+
+/// The rows a command applies to: the selected ones, or the caret's.
+List<int> command_rows(MDV_edit.Buffer buffer) {
+    MDV_edit.Pos first = buffer.sel_start();
+    MDV_edit.Pos last = buffer.sel_end();
+    int stop = last.row;
+    // A selection that ends at column 0 of a line does not include it.
+    if (buffer.has_selection() && last.col == 0 && last.row > first.row) {
+        stop = last.row - 1;
+    }
+    List<int> out = [];
+    for (int row in first.row .. stop + 1) {
+        out.push(row);
+    }
+    return out;
+}
+
+/// Tab / Shift-Tab: nest or un-nest the list items of the selected lines;
+/// elsewhere insert spaces or remove them.
+pub void indent_lines(MDV_edit.Buffer buffer, bool is_back) {
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    if (!is_back && is_table_line(line) && table_range(buffer, row).size() == 2) {
+        table_move(buffer, true);
+        return;
+    }
+    if (is_back && is_table_line(line) && table_range(buffer, row).size() == 2) {
+        table_move(buffer, false);
+        return;
+    }
+    List<int> rows = command_rows(buffer);
+    bool is_multi = rows.size() > 1 || buffer.has_selection();
+    Item here = parse_item(line);
+    if (!is_back && !is_multi && !here.is_item) {
+        buffer.begin("tab");
+        if (is_in_fence(buffer, row)) {
+            buffer.insert("    ");
+        } else {
+            buffer.insert("  ");
+        }
+        buffer.finish();
+        return;
+    }
+    buffer.begin("indent");
+    for (int each in rows) {
+        str current = buffer.lines[each];
+        Item item = parse_item(current);
+        int unit = 2;
+        if (item.is_item) {
+            unit = item.content - item.indent;
+            if (unit < 2) {
+                unit = 2;
+            }
+        }
+        if (is_back) {
+            int remove = 0;
+            while (remove < unit && remove < current.size() && current.byte_at(remove) == ' ') {
+                remove = remove + 1;
+            }
+            if (remove == 0 && current.starts_with("\t")) {
+                remove = 1;
+            }
+            if (remove > 0) {
+                replace_line_after(buffer, each, current.substr(remove, current.size()), 1);
+                if (buffer.caret.row == each && buffer.caret.col < 0) {
+                    buffer.caret = MDV_edit.Pos(each, 0);
+                }
+            }
+        } else if (current.trim().size() > 0) {
+            replace_line_after(buffer, each, spaces(unit) + current, 1);
+            if (item.is_item && item.is_ordered) {
+                // A nested list starts again at 1.
+                str nested = buffer.lines[each];
+                Item moved = parse_item(nested);
+                if (moved.is_ordered && each > 0) {
+                    Item above = nearest_item_above(buffer, each);
+                    if (above.is_item && above.indent < moved.indent) {
+                        replace_line_after(buffer, each, nested.substr(0, moved.marker_start) + "1" + nested.substr(moved.marker_end - 1, nested.size()), moved.marker_end - 1);
+                    }
+                }
+            }
+        }
+    }
+    renumber(buffer, row);
+    renumber(buffer, buffer.caret.row);
+    buffer.finish();
+}
+
+Item nearest_item_above(MDV_edit.Buffer buffer, int row) {
+    int index = row - 1;
+    while (index >= 0) {
+        str line = buffer.lines[index];
+        if (line.trim().size() > 0) {
+            Item item = parse_item(line);
+            if (item.is_item) {
+                return item;
+            }
+            if (!(line.starts_with("  ") || line.starts_with("\t"))) {
+                return Item();
+            }
+        }
+        index = index - 1;
+    }
+    return Item();
+}
+
+/// Backspace: an empty pair goes whole; otherwise as usual. A list item's
+/// bare marker is removed in one go.
+pub void backspace(MDV_edit.Buffer buffer) {
+    if (!buffer.has_selection() && buffer.caret.col > 0 && buffer.caret.col < buffer.lines[buffer.caret.row].size()) {
+        str line = buffer.lines[buffer.caret.row];
+        int back = MDV_edit.previous_col(line, buffer.caret.col);
+        str left = line.substr(back, buffer.caret.col);
+        str right = line.substr(buffer.caret.col, MDV_edit.next_col(line, buffer.caret.col));
+        if (is_pair(left, right)) {
+            buffer.begin("delete");
+            MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(buffer.caret.row, back), MDV_edit.Pos(buffer.caret.row, buffer.caret.col + right.size()), "");
+            buffer.caret = MDV_edit.Pos(buffer.caret.row, back);
+            buffer.want = -1;
+            buffer.finish();
+            return;
+        }
+    }
+    buffer.delete_back();
+    renumber(buffer, buffer.caret.row);
+    buffer.finish();
+}
+
+bool is_pair(str left, str right) {
+    return (left == "(" && right == ")") || (left == "[" && right == "]") || (left == "{" && right == "}") || (left == "\"" && right == "\"") || (left == "'" && right == "'") || (left == "`" && right == "`");
+}
+
+// --- typing ------------------------------------------------------------------------------------
+
+bool is_word_byte(int value) {
+    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_' || value >= 128;
+}
+
+/// The closing mark for an opening `char` that wraps a selection, "" if none.
+str closing_for(str open) {
+    if (open == "(") {
+        return ")";
+    }
+    if (open == "[") {
+        return "]";
+    }
+    if (open == "{") {
+        return "}";
+    }
+    if (open == "*" || open == "_" || open == "~" || open == "`" || open == "\"" || open == "'") {
+        return open;
+    }
+    return "";
+}
+
+/// Wrap the selection in `open` .. `closer` and keep the inside selected.
+void wrap_selection(MDV_edit.Buffer buffer, str open, str closer) {
+    buffer.begin("wrap");
+    MDV_edit.Pos first = buffer.sel_start();
+    MDV_edit.Pos last = buffer.sel_end();
+    str inside = buffer.text_between(first, last);
+    MDV_edit.Pos finish = buffer.splice(first, last, open + inside + closer);
+    MDV_edit.Pos from = MDV_edit.advance(first, open);
+    MDV_edit.Pos upto = MDV_edit.advance(from, inside);
+    buffer.select(from, upto);
+    buffer.finish();
+}
+
+/// A typed character. `is_smart` turns on curly quotes, dashes and ellipses.
+pub void type_char(MDV_edit.Buffer buffer, int value, bool is_smart) {
+    str typed = str.from_chars([value]);
+    str closer = closing_for(typed);
+    if (buffer.has_selection() && closer.size() > 0) {
+        wrap_selection(buffer, typed, closer);
+        return;
+    }
+    str line = buffer.lines[buffer.caret.row];
+    str next = "";
+    str previous = "";
+    int previous_byte = 0;
+    int next_byte = 0;
+    if (buffer.caret.col < line.size()) {
+        next = line.substr(buffer.caret.col, MDV_edit.next_col(line, buffer.caret.col));
+        next_byte = line.byte_at(buffer.caret.col);
+    }
+    if (buffer.caret.col > 0) {
+        previous = line.substr(MDV_edit.previous_col(line, buffer.caret.col), buffer.caret.col);
+        previous_byte = line.byte_at(buffer.caret.col - 1);
+    }
+    // Typing a closing bracket or quote over the one that is there.
+    if ((typed == ")" || typed == "]" || typed == "}" || typed == "`" || typed == "\"" || typed == "'") && next == typed) {
+        buffer.seal();
+        buffer.caret = MDV_edit.Pos(buffer.caret.row, buffer.caret.col + next.size());
+        buffer.want = -1;
+        return;
+    }
+    bool is_opening = typed == "(" || typed == "[" || typed == "{" || typed == "\"" || typed == "'" || typed == "`";
+    if (is_opening && !is_in_fence(buffer, buffer.caret.row)) {
+        bool is_quote = typed == "\"" || typed == "'" || typed == "`";
+        bool can_pair = true;
+        if (is_smart && (typed == "\"" || typed == "'")) {
+            can_pair = false;
+        }
+        if (is_word_byte(next_byte) && next.size() > 0) {
+            can_pair = false;
+        }
+        if (is_quote && previous.size() > 0 && (is_word_byte(previous_byte) || previous == typed)) {
+            can_pair = false;
+        }
+        if (can_pair) {
+            buffer.begin("pair");
+            buffer.insert(typed + closer);
+            buffer.caret = MDV_edit.Pos(buffer.caret.row, buffer.caret.col - closer.size());
+            buffer.finish();
+            return;
+        }
+    }
+    if (is_smart && !is_in_fence(buffer, buffer.caret.row)) {
+        if (typed == "\"" || typed == "'") {
+            bool is_opening_quote = previous.size() == 0 || previous == " " || previous == "(" || previous == "[";
+            str curly = "\u{201d}";
+            if (typed == "'") {
+                curly = "\u{2019}";
+            }
+            if (is_opening_quote) {
+                curly = "\u{201c}";
+                if (typed == "'") {
+                    curly = "\u{2018}";
+                }
+            }
+            buffer.type_text(curly);
+            return;
+        }
+        if (typed == "-" && previous == "-") {
+            buffer.begin("type");
+            MDV_edit.Pos from = MDV_edit.Pos(buffer.caret.row, buffer.caret.col - 1);
+            MDV_edit.Pos finish = buffer.splice(from, buffer.caret, "\u{2013}");
+            buffer.caret = finish;
+            buffer.finish();
+            return;
+        }
+        if (typed == "." && buffer.caret.col >= 2 && line.substr(buffer.caret.col - 2, buffer.caret.col) == "..") {
+            buffer.begin("type");
+            MDV_edit.Pos from = MDV_edit.Pos(buffer.caret.row, buffer.caret.col - 2);
+            MDV_edit.Pos finish = buffer.splice(from, buffer.caret, "\u{2026}");
+            buffer.caret = finish;
+            buffer.finish();
+            return;
+        }
+    }
+    buffer.type_text(typed);
+}
+
+// --- inline formatting ------------------------------------------------------------------------
+
+/// The start and end of the word around the caret, or the caret twice.
+List<MDV_edit.Pos> word_around(MDV_edit.Buffer buffer) {
+    str line = buffer.lines[buffer.caret.row];
+    int first = buffer.caret.col;
+    int last = buffer.caret.col;
+    while (first > 0 && is_word_byte(line.byte_at(first - 1))) {
+        first = first - 1;
+    }
+    while (last < line.size() && is_word_byte(line.byte_at(last))) {
+        last = last + 1;
+    }
+    return [MDV_edit.Pos(buffer.caret.row, first), MDV_edit.Pos(buffer.caret.row, last)];
+}
+
+/// Wrap the selection (or the word at the caret) in `marker`, or take the
+/// marker off when it is already there.
+pub void toggle_inline(MDV_edit.Buffer buffer, str marker) {
+    buffer.begin("format");
+    MDV_edit.Pos first = buffer.sel_start();
+    MDV_edit.Pos last = buffer.sel_end();
+    if (!buffer.has_selection()) {
+        List<MDV_edit.Pos> word = word_around(buffer);
+        first = word[0];
+        last = word[1];
+    }
+    if (first.eq(last)) {
+        // Nothing to wrap: an empty pair with the caret between.
+        buffer.insert(marker + marker);
+        buffer.caret = MDV_edit.Pos(buffer.caret.row, buffer.caret.col - marker.size());
+        buffer.finish();
+        return;
+    }
+    str line = buffer.lines[first.row];
+    int size = marker.size();
+    bool is_outside = first.row == last.row && first.col >= size && line.substr(first.col - size, first.col) == marker && last.col + size <= line.size() && line.substr(last.col, last.col + size) == marker;
+    str inside = buffer.text_between(first, last);
+    bool is_inside = inside.size() >= 2 * size && inside.starts_with(marker) && inside.ends_with(marker);
+    // `*` must not be taken for the first half of `**`.
+    if (marker == "*" && is_outside && first.col >= 2 && line.substr(first.col - 2, first.col) == "**" && !(first.col >= 3 && line.byte_at(first.col - 3) == '*')) {
+        is_outside = false;
+    }
+    if (is_outside) {
+        MDV_edit.Pos begin_position = MDV_edit.Pos(first.row, first.col - size);
+        MDV_edit.Pos end_position = MDV_edit.Pos(last.row, last.col + size);
+        MDV_edit.Pos finish = buffer.splice(begin_position, end_position, inside);
+        buffer.select(begin_position, MDV_edit.Pos(begin_position.row, begin_position.col + inside.size()));
+    } else if (is_inside) {
+        str bare = inside.substr(size, inside.size() - size);
+        MDV_edit.Pos finish = buffer.splice(first, last, bare);
+        buffer.select(first, MDV_edit.advance(first, bare));
+    } else {
+        MDV_edit.Pos finish = buffer.splice(first, last, marker + inside + marker);
+        MDV_edit.Pos from = MDV_edit.advance(first, marker);
+        buffer.select(from, MDV_edit.advance(from, inside));
+    }
+    buffer.finish();
+}
+
+/// Set the heading level of the caret's line (0 removes it; the same level
+/// again removes it too).
+pub void set_heading(MDV_edit.Buffer buffer, int level) {
+    buffer.begin("heading");
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    int marks = 0;
+    while (marks < line.size() && line.byte_at(marks) == '#') {
+        marks = marks + 1;
+    }
+    str body = line;
+    if (marks > 0 && marks <= 6 && (marks == line.size() || line.byte_at(marks) == ' ')) {
+        body = line.substr(marks, line.size());
+        if (body.starts_with(" ")) {
+            body = body.substr(1, body.size());
+        }
+    } else {
+        marks = 0;
+    }
+    if (level == marks || level == 0) {
+        replace_line(buffer, row, body);
+    } else {
+        replace_line(buffer, row, "#".repeat(level) + " " + body);
+    }
+    buffer.has_anchor = false;
+    buffer.finish();
+}
+
+/// `[text](url)` over the selection or the word, with `url` selected; an
+/// image when `is_image`.
+pub void insert_link(MDV_edit.Buffer buffer, bool is_image) {
+    buffer.begin("link");
+    MDV_edit.Pos first = buffer.sel_start();
+    MDV_edit.Pos last = buffer.sel_end();
+    if (!buffer.has_selection()) {
+        List<MDV_edit.Pos> word = word_around(buffer);
+        first = word[0];
+        last = word[1];
+    }
+    str label = buffer.text_between(first, last);
+    str lead = "[";
+    if (is_image) {
+        lead = "![";
+    }
+    MDV_edit.Pos finish = buffer.splice(first, last, lead + label + "](url)");
+    if (label.size() == 0) {
+        buffer.caret = MDV_edit.Pos(first.row, first.col + lead.size());
+        buffer.has_anchor = false;
+    } else {
+        MDV_edit.Pos from = MDV_edit.Pos(finish.row, finish.col - 4);
+        buffer.select(from, MDV_edit.Pos(finish.row, finish.col - 1));
+    }
+    buffer.finish();
+}
+
+// --- line prefixes -------------------------------------------------------------------------------
+
+/// The text of `line` without a list or quote marker, and which marker it had.
+str strip_marker(str line) {
+    Item item = parse_item(line);
+    if (item.is_item) {
+        return spaces(item.indent) + line.substr(item.content, line.size());
+    }
+    str quote = quote_prefix(line);
+    if (quote.size() > 0) {
+        return line.substr(quote.size(), line.size());
+    }
+    return line;
+}
+
+/// Toggle a bullet, number, task or quote marker on the selected lines.
+pub void toggle_prefix(MDV_edit.Buffer buffer, str kind) {
+    buffer.begin("prefix");
+    List<int> rows = command_rows(buffer);
+    bool is_all = true;
+    for (int row in rows) {
+        str line = buffer.lines[row];
+        if (line.trim().size() == 0) {
+            continue;
+        }
+        Item item = parse_item(line);
+        bool is_present = false;
+        if (kind == "bullet") {
+            is_present = item.is_item && !item.is_ordered && item.task == 0;
+        } else if (kind == "number") {
+            is_present = item.is_item && item.is_ordered;
+        } else if (kind == "task") {
+            is_present = item.is_item && item.task > 0;
+        } else if (kind == "quote") {
+            is_present = quote_prefix(line).size() > 0;
+        }
+        if (!is_present) {
+            is_all = false;
+        }
+    }
+    int count = 0;
+    for (int row in rows) {
+        str line = buffer.lines[row];
+        if (line.trim().size() == 0 && rows.size() > 1) {
+            continue;
+        }
+        str bare = strip_marker(line);
+        if (is_all) {
+            replace_line(buffer, row, bare);
+            continue;
+        }
+        count = count + 1;
+        int indent_width = MDV_edit.indent_of(bare);
+        str lead = bare.substr(0, indent_width);
+        str rest = bare.substr(indent_width, bare.size());
+        if (kind == "bullet") {
+            replace_line(buffer, row, lead + "- " + rest);
+        } else if (kind == "number") {
+            replace_line(buffer, row, lead + str(count) + ". " + rest);
+        } else if (kind == "task") {
+            replace_line(buffer, row, lead + "- [ ] " + rest);
+        } else if (kind == "quote") {
+            replace_line(buffer, row, "> " + bare);
+        }
+    }
+    renumber(buffer, rows[0]);
+    int last_row = rows[rows.size() - 1];
+    if (rows.size() > 1 || buffer.has_selection()) {
+        buffer.select(MDV_edit.Pos(rows[0], 0), MDV_edit.Pos(last_row, buffer.lines[last_row].size()));
+    } else {
+        buffer.caret = MDV_edit.Pos(last_row, buffer.lines[last_row].size());
+        buffer.has_anchor = false;
+    }
+    buffer.finish();
+}
+
+/// A fenced block around the selected lines, or an empty one with the caret
+/// inside.
+pub void insert_code_block(MDV_edit.Buffer buffer) {
+    buffer.begin("code");
+    if (buffer.has_selection()) {
+        MDV_edit.Pos first = buffer.sel_start();
+        MDV_edit.Pos last = buffer.sel_end();
+        str inside = buffer.text_between(MDV_edit.Pos(first.row, 0), last);
+        MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(first.row, 0), last, "```\n" + inside + "\n```");
+        buffer.caret = finish;
+        buffer.has_anchor = false;
+        buffer.finish();
+        return;
+    }
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    if (line.trim().size() > 0) {
+        MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, line.size()), MDV_edit.Pos(row, line.size()), "\n\n```\n\n```");
+        buffer.caret = MDV_edit.Pos(row + 3, 0);
+    } else {
+        MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, 0), MDV_edit.Pos(row, line.size()), "```\n\n```");
+        buffer.caret = MDV_edit.Pos(row + 1, 0);
+    }
+    buffer.has_anchor = false;
+    buffer.finish();
+}
+
+pub void insert_rule(MDV_edit.Buffer buffer) {
+    buffer.begin("rule");
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    str body = "---\n";
+    MDV_edit.Pos at_position = MDV_edit.Pos(row, line.size());
+    if (line.trim().size() > 0) {
+        body = "\n\n---\n";
+    } else {
+        at_position = MDV_edit.Pos(row, 0);
+    }
+    MDV_edit.Pos finish = buffer.splice(at_position, MDV_edit.Pos(row, line.size()), body);
+    buffer.caret = finish;
+    buffer.has_anchor = false;
+    buffer.finish();
+}
+
+/// A table skeleton at the caret, the caret in its first header cell.
+pub void insert_table(MDV_edit.Buffer buffer) {
+    buffer.begin("table");
+    int row = buffer.caret.row;
+    str line = buffer.lines[row];
+    str table = "| Column 1 | Column 2 |\n| -------- | -------- |\n|          |          |";
+    int target = row;
+    if (line.trim().size() > 0) {
+        MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, line.size()), MDV_edit.Pos(row, line.size()), "\n\n" + table);
+        target = row + 2;
+    } else {
+        MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(row, 0), MDV_edit.Pos(row, line.size()), table);
+    }
+    buffer.select(MDV_edit.Pos(target, 2), MDV_edit.Pos(target, 10));
+    buffer.finish();
+}
+
+// --- paste ---------------------------------------------------------------------------------------
+
+/// Is `text` a single URL?
+pub bool is_url(str text) {
+    str one = text.trim();
+    if (one.contains(" ") || one.contains("\n")) {
+        return false;
+    }
+    return one.starts_with("http://") || one.starts_with("https://") || one.starts_with("mailto:");
+}
+
+/// Paste `text`. `kind` says what the caller found out about it: "" ordinary,
+/// "image" a path to an image file, "file" a path to some other file.
+pub void paste(MDV_edit.Buffer buffer, str raw, str kind) {
+    str text = raw.split("\r\n").join("\n").split("\r").join("\n");
+    buffer.begin("paste");
+    if (kind == "image" || kind == "file") {
+        str path = text.trim();
+        if (path.starts_with("file://")) {
+            path = path.substr(7, path.size());
+        }
+        str name = path;
+        for (int index in 0 .. path.size()) {
+            if (path.byte_at(index) == '/') {
+                name = path.substr(index + 1, path.size());
+            }
+        }
+        if (kind == "image") {
+            buffer.insert("![" + name + "](" + path + ")");
+        } else {
+            buffer.insert("[" + name + "](" + path + ")");
+        }
+        buffer.finish();
+        return;
+    }
+    if (buffer.has_selection() && is_url(text) && !buffer.selected_text().contains("\n")) {
+        str label = buffer.selected_text();
+        buffer.insert("[" + label + "](" + text.trim() + ")");
+        buffer.finish();
+        return;
+    }
+    buffer.insert(text);
+    buffer.finish();
+    // A pasted list may break the numbers around it.
+    renumber(buffer, buffer.caret.row);
+}
+
+// --- tables -----------------------------------------------------------------------------------------
+
+bool is_table_line(str line) {
+    return line.trim().starts_with("|");
+}
+
+/// `line`'s cells, trimmed, split on `|` that is not escaped.
+List<str> cells_of(str line) {
+    str body = line.trim();
+    if (body.starts_with("|")) {
+        body = body.substr(1, body.size());
+    }
+    if (body.ends_with("|") && !body.ends_with("\\|")) {
+        body = body.substr(0, body.size() - 1);
+    }
+    List<str> out = [];
+    List<int> chars = body.chars();
+    str current = "";
+    List<int> piece = [];
+    int index = 0;
+    while (index < chars.size()) {
+        int value = chars[index];
+        if (value == '\\' && index + 1 < chars.size() && chars[index + 1] == '|') {
+            piece.push(value);
+            piece.push('|');
+            index = index + 2;
+            continue;
+        }
+        if (value == '|') {
+            out.push(str.from_chars(piece).trim());
+            piece = [];
+        } else {
+            piece.push(value);
+        }
+        index = index + 1;
+    }
+    out.push(str.from_chars(piece).trim());
+    return out;
+}
+
+bool is_separator(str line) {
+    str body = line.trim();
+    if (!body.contains("-")) {
+        return false;
+    }
+    for (int value in body.chars()) {
+        if (value != '|' && value != '-' && value != ':' && value != ' ') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The first and last row of the table around `row`: two numbers, or an
+/// empty list when `row` is not in a table.
+pub List<int> table_range(MDV_edit.Buffer buffer, int row) {
+    if (!is_table_line(buffer.lines[row]) || is_in_fence(buffer, row)) {
+        return [];
+    }
+    int first = row;
+    while (first > 0 && is_table_line(buffer.lines[first - 1])) {
+        first = first - 1;
+    }
+    int last = row;
+    while (last + 1 < buffer.lines.size() && is_table_line(buffer.lines[last + 1])) {
+        last = last + 1;
+    }
+    if (last - first < 1 || !is_separator(buffer.lines[first + 1])) {
+        return [];
+    }
+    return [first, last];
+}
+
+/// Which cell of its row byte `col` is in.
+int cell_index(str line, int col) {
+    int index = 0;
+    int seen = 0;
+    bool is_started = false;
+    for (int at_col in 0 .. line.size()) {
+        if (at_col >= col) {
+            break;
+        }
+        int value = line.byte_at(at_col);
+        if (value == '|' && !(at_col > 0 && line.byte_at(at_col - 1) == '\\')) {
+            if (is_started) {
+                seen = seen + 1;
+            }
+            is_started = true;
+        }
+    }
+    index = seen;
+    if (!line.trim().starts_with("|")) {
+        index = seen;
+    }
+    return index;
+}
+
+str pad_cell(str text, int width, int mode) {
+    int pad = width - TUI_text.width(text);
+    if (pad <= 0) {
+        return text;
+    }
+    if (mode == 3) {
+        return spaces(pad) + text;
+    }
+    if (mode == 2) {
+        int before = pad / 2;
+        return spaces(before) + text + spaces(pad - before);
+    }
+    return text + spaces(pad);
+}
+
+/// 0 default, 1 left, 2 centre, 3 right, from a separator cell.
+int align_of(str cell) {
+    bool has_left = cell.starts_with(":");
+    bool has_right = cell.ends_with(":");
+    if (has_left && has_right) {
+        return 2;
+    }
+    if (has_right) {
+        return 3;
+    }
+    if (has_left) {
+        return 1;
+    }
+    return 0;
+}
+
+/// Line the table around `row` up, keeping the caret in its cell.
+pub void table_align(MDV_edit.Buffer buffer, int row) {
+    List<int> range = table_range(buffer, row);
+    if (range.size() != 2) {
+        return;
+    }
+    List<List<str>> grid = [];
+    int columns = 0;
+    for (int index in range[0] .. range[1] + 1) {
+        List<str> cells = cells_of(buffer.lines[index]);
+        grid.push(cells);
+        if (cells.size() > columns) {
+            columns = cells.size();
+        }
+    }
+    List<int> aligns = [];
+    List<int> widths = [];
+    for (int column in 0 .. columns) {
+        int mode = 0;
+        if (grid[1].size() > column) {
+            mode = align_of(grid[1][column]);
+        }
+        aligns.push(mode);
+        int wide = 3;
+        for (int line_index in 0 .. grid.size()) {
+            if (line_index == 1 || grid[line_index].size() <= column) {
+                continue;
+            }
+            int cell_width = TUI_text.width(grid[line_index][column]);
+            if (cell_width > wide) {
+                wide = cell_width;
+            }
+        }
+        widths.push(wide);
+    }
+    List<str> out = [];
+    for (int line_index in 0 .. grid.size()) {
+        List<str> parts = [];
+        for (int column in 0 .. columns) {
+            str cell = "";
+            if (grid[line_index].size() > column) {
+                cell = grid[line_index][column];
+            }
+            if (line_index == 1) {
+                int total = widths[column];
+                str dashes = "-".repeat(total);
+                if (aligns[column] == 2) {
+                    dashes = ":" + "-".repeat(total - 2) + ":";
+                } else if (aligns[column] == 3) {
+                    dashes = "-".repeat(total - 1) + ":";
+                } else if (aligns[column] == 1) {
+                    dashes = ":" + "-".repeat(total - 1);
+                }
+                parts.push(dashes);
+            } else {
+                parts.push(pad_cell(cell, widths[column], aligns[column]));
+            }
+        }
+        out.push("| " + parts.join(" | ") + " |");
+    }
+    bool is_inside = buffer.caret.row >= range[0] && buffer.caret.row <= range[1];
+    int caret_cell = 0;
+    int caret_offset = 0;
+    if (is_inside) {
+        str current = buffer.lines[buffer.caret.row];
+        caret_cell = cell_index(current, buffer.caret.col);
+        caret_offset = cell_offset(current, buffer.caret.col);
+    }
+    bool is_same = true;
+    for (int index in 0 .. out.size()) {
+        if (out[index] != buffer.lines[range[0] + index]) {
+            is_same = false;
+        }
+    }
+    if (is_same) {
+        return;
+    }
+    MDV_edit.Pos last_end = MDV_edit.Pos(range[1], buffer.lines[range[1]].size());
+    MDV_edit.Pos finish = buffer.splice(MDV_edit.Pos(range[0], 0), last_end, out.join("\n"));
+    if (is_inside) {
+        buffer.caret = cell_position(buffer, buffer.caret.row, caret_cell, caret_offset);
+    }
+    buffer.has_anchor = false;
+}
+
+/// The byte range of the text of cell `cell` of `line`: `start` is just
+/// after the `|`, `stop` at the next one.
+List<int> cell_span(str line, int cell) {
+    int pipes = 0;
+    int start = line.size();
+    int stop = line.size();
+    for (int index in 0 .. line.size()) {
+        if (line.byte_at(index) == '|' && !(index > 0 && line.byte_at(index - 1) == '\\')) {
+            if (pipes == cell) {
+                start = index + 1;
+            } else if (pipes == cell + 1) {
+                stop = index;
+                break;
+            }
+            pipes = pipes + 1;
+        }
+    }
+    return [start, stop];
+}
+
+/// How far into its cell's text byte `col` is (0 at or before the text).
+int cell_offset(str line, int col) {
+    List<int> span = cell_span(line, cell_index(line, col));
+    int text_start = span[0];
+    while (text_start < span[1] && line.byte_at(text_start) == ' ') {
+        text_start = text_start + 1;
+    }
+    if (col <= text_start) {
+        return 0;
+    }
+    return col - text_start;
+}
+
+/// The position of `offset` bytes into the text of cell `cell` of `row`; in
+/// an empty cell, just after the space that follows the bar.
+MDV_edit.Pos cell_position(MDV_edit.Buffer buffer, int row, int cell, int offset) {
+    str line = buffer.lines[row];
+    List<int> span = cell_span(line, cell);
+    int text_start = span[0];
+    while (text_start < span[1] && line.byte_at(text_start) == ' ') {
+        text_start = text_start + 1;
+    }
+    int target = text_start + offset;
+    if (text_start == span[1]) {
+        target = span[0];
+        if (target < span[1]) {
+            target = target + 1;
+        }
+    }
+    if (target > span[1]) {
+        target = span[1];
+    }
+    return MDV_edit.Pos(row, MDV_edit.snap_col(line, target));
+}
+
+/// Tab / Shift-Tab in a table: to the next or previous cell, a new row after
+/// the last cell.
+pub void table_move(MDV_edit.Buffer buffer, bool is_forward) {
+    int row = buffer.caret.row;
+    List<int> range = table_range(buffer, row);
+    if (range.size() != 2) {
+        return;
+    }
+    buffer.begin("table");
+    int cell = cell_index(buffer.lines[row], buffer.caret.col);
+    table_align(buffer, row);
+    List<int> fresh_range = table_range(buffer, row);
+    int columns = cells_of(buffer.lines[fresh_range[0]]).size();
+    int target_row = row;
+    int target_cell = cell;
+    if (is_forward) {
+        target_cell = cell + 1;
+        if (target_cell >= columns) {
+            target_cell = 0;
+            target_row = row + 1;
+            if (target_row == fresh_range[0] + 1) {
+                target_row = target_row + 1;
+            }
+            if (target_row > fresh_range[1]) {
+                List<str> empty = [];
+                for (int column in 0 .. columns) {
+                    empty.push("   ");
+                }
+                MDV_edit.Pos end_position = MDV_edit.Pos(fresh_range[1], buffer.lines[fresh_range[1]].size());
+                MDV_edit.Pos finish = buffer.splice(end_position, end_position, "\n| " + empty.join(" | ") + " |");
+                target_row = fresh_range[1] + 1;
+            }
+        }
+    } else {
+        target_cell = cell - 1;
+        if (target_cell < 0) {
+            target_row = row - 1;
+            if (target_row == fresh_range[0] + 1) {
+                target_row = target_row - 1;
+            }
+            if (target_row < fresh_range[0]) {
+                target_row = fresh_range[0];
+                target_cell = 0;
+            } else {
+                target_cell = columns - 1;
+            }
+        }
+    }
+    buffer.has_anchor = false;
+    buffer.caret = cell_position(buffer, target_row, target_cell, 0);
+    buffer.finish();
+}
+
+/// Enter at the end of a table row: a new row below.
+void table_enter(MDV_edit.Buffer buffer) {
+    int row = buffer.caret.row;
+    table_align(buffer, row);
+    List<int> range = table_range(buffer, row);
+    int columns = cells_of(buffer.lines[range[0]]).size();
+    int target = buffer.caret.row;
+    if (target == range[0] + 1) {
+        target = range[0];
+    }
+    str current = buffer.lines[row];
+    List<str> cells = cells_of(current);
+    bool is_empty = true;
+    for (str cell in cells) {
+        if (cell.trim().size() > 0) {
+            is_empty = false;
+        }
+    }
+    if (is_empty && row > range[0] + 1) {
+        // An empty row ends the table.
+        replace_line(buffer, row, "");
+        buffer.caret = MDV_edit.Pos(row, 0);
+        return;
+    }
+    List<str> empty = [];
+    for (int column in 0 .. columns) {
+        empty.push("   ");
+    }
+    MDV_edit.Pos end_position = MDV_edit.Pos(row, buffer.lines[row].size());
+    MDV_edit.Pos finish = buffer.splice(end_position, end_position, "\n| " + empty.join(" | ") + " |");
+    table_align(buffer, row + 1);
+    buffer.caret = cell_position(buffer, row + 1, 0, 0);
+}

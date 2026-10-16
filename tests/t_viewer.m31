@@ -110,6 +110,15 @@ str mode_name(MDV_viewer.Viewer viewer) {
         case Help: {
             return "help";
         }
+        case Find: {
+            return "find";
+        }
+        case Palette: {
+            return "palette";
+        }
+        case Prompt: {
+            return "prompt";
+        }
     }
 }
 
@@ -134,6 +143,12 @@ str first_request(MDV_viewer.Viewer viewer) {
         }
         case OpenUrl(str url): {
             return "url " + url;
+        }
+        case Save(str path, str saved_text): {
+            return "save " + path;
+        }
+        case Paste: {
+            return "paste";
         }
     }
 }
@@ -164,8 +179,8 @@ viewer.press(["ctrl-d"]);
 tally.number("Ctrl-d is half a page", viewer.top, 11);
 viewer.press(["ctrl-u"]);
 tally.number("Ctrl-u is half a page back", viewer.top, 0);
-viewer.press(["ctrl-f"]);
-tally.number("Ctrl-f is a page less one line", viewer.top, 21);
+viewer.press(["pgdn"]);
+tally.number("PgDn is a page less one line", viewer.top, 21);
 viewer.press(["ctrl-b"]);
 tally.number("Ctrl-b is a page back", viewer.top, 0);
 viewer.press(["space"]);

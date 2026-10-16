@@ -1,3 +1,28 @@
+# tui-markdown 0.4.0: a light markdown editor
+
+Version 0.4.0, from 0.3.0 (1665143). The viewer becomes a viewer and editor in
+one: Preview, Source and Live panes, desktop keys and the mouse, markdown
+assists, find and replace, a command palette, save. Pins are unchanged
+(tui v0.8.0, term-markdown v0.4.1).
+
+**Changed keys in Preview** (they collide with the desktop's): `Ctrl-f` was a
+page down and is now find (use `PgDn` or `Space`); `Ctrl-h` is no longer
+"back" (`Backspace` and `Ctrl-o` still are). `height()` is rows - 2 in
+Preview and rows - 3 with the toolbar of an editing pane.
+
+New modules: `MDV_edit` (lines, caret, selection, undo groups: no markdown, no
+terminal), `MDV_assist` (the markdown rules), `MDV_find`, `MDV_live` (the
+Source and Live layouts), `MDV_actions` (every command by number, for the
+palette, the toolbar and the keys). API changes a dependent would notice:
+`MDV_viewer.Viewer.source` is now `buffer`; `Viewer.mouse` and `Viewer.key`
+also drive the editing panes; `Request` gains `Save` and `Paste`; `Mode`
+gains `Find`, `Palette`, `Prompt`; `MDV_model.Row` gains `col`, and style bit
+`RAW` marks source text.
+
+New flags: `--mode source|live`, `--edit`, `--smart`.
+
+---
+
 # tui-markdown 0.3.0: a designed page, themes, mouse
 
 Version 0.3.0, from master 2529f22 (v0.2.1). The viewer is redrawn; every

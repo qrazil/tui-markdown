@@ -1,0 +1,142 @@
+// Find and replace over the buffer's text.
+//
+// Matches are positions in the source lines (never in the rendered text), so
+// replacing one is a splice. A needle with no capital letter ignores case
+// (smart case) unless `is_exact` says otherwise.
+
+import MDV_edit;
+
+pub type Match {
+    pub int row;
+    pub int col;
+    pub int length;
+}
+
+pub type Finder {
+    pub str needle = "";
+    pub str replacement = "";
+    /// Match case even when the needle has no capital.
+    pub bool is_exact = false;
+    pub List<Match> matches = [];
+    /// The match the caret is on or last went to, -1 for none.
+    pub int current = -1;
+}
+
+/// Find every match in `lines` again.
+pub void Finder.search(List<str> lines) {
+    matches = [];
+    current = -1;
+    if (needle.size() == 0) {
+        return;
+    }
+    bool is_cased = is_exact || has_upper(needle);
+    str wanted = needle;
+    if (!is_cased) {
+        wanted = needle.to_lower();
+    }
+    for (int row in 0 .. lines.size()) {
+        str line = lines[row];
+        if (line.size() < wanted.size()) {
+            continue;
+        }
+        if (!is_cased) {
+            str lowered = line.to_lower();
+            // A letter whose lower case has another length would put a match
+            // at the wrong byte; such a line is skipped.
+            if (lowered.size() != line.size()) {
+                continue;
+            }
+            line = lowered;
+        }
+        int from = 0;
+        bool is_scanning = true;
+        while (is_scanning) {
+            match (line.substr(from, line.size()).index_of(wanted)) {
+                case Some(int offset): {
+                    matches.push(Match(row, from + offset, wanted.size()));
+                    from = from + offset + wanted.size();
+                }
+                case None: {
+                    is_scanning = false;
+                }
+            }
+        }
+    }
+}
+
+/// The index of the first match at or after `from` (wrapping), -1 for none.
+pub int Finder.first_from(MDV_edit.Pos from) {
+    for (int index in 0 .. matches.size()) {
+        Match each = matches[index];
+        if (each.row > from.row || (each.row == from.row && each.col >= from.col)) {
+            return index;
+        }
+    }
+    if (matches.size() > 0) {
+        return 0;
+    }
+    return -1;
+}
+
+/// The index of the last match that ends at or before `from` (wrapping).
+pub int Finder.last_before(MDV_edit.Pos from) {
+    int found = -1;
+    for (int index in 0 .. matches.size()) {
+        Match each = matches[index];
+        if (each.row < from.row || (each.row == from.row && each.col < from.col)) {
+            found = index;
+        }
+    }
+    if (found < 0 && matches.size() > 0) {
+        return matches.size() - 1;
+    }
+    return found;
+}
+
+/// Replace match `index` with the replacement; the caret ends after it.
+pub void Finder.replace_at(MDV_edit.Buffer buffer, int index) {
+    if (index < 0 || index >= matches.size()) {
+        return;
+    }
+    Match target = matches[index];
+    buffer.begin("replace");
+    MDV_edit.Pos first = MDV_edit.Pos(target.row, target.col);
+    MDV_edit.Pos last = MDV_edit.Pos(target.row, target.col + target.length);
+    MDV_edit.Pos finish = buffer.splice(first, last, replacement);
+    buffer.caret = finish;
+    buffer.has_anchor = false;
+    buffer.finish();
+    buffer.seal();
+}
+
+/// Replace every match; answers how many. One undo step.
+pub int Finder.replace_all(MDV_edit.Buffer buffer) {
+    int count = matches.size();
+    if (count == 0) {
+        return 0;
+    }
+    buffer.begin("replace-all");
+    // From the last to the first, so earlier positions stay right.
+    int index = count;
+    while (index > 0) {
+        index = index - 1;
+        Match target = matches[index];
+        MDV_edit.Pos first = MDV_edit.Pos(target.row, target.col);
+        MDV_edit.Pos last = MDV_edit.Pos(target.row, target.col + target.length);
+        MDV_edit.Pos ignored = buffer.splice(first, last, replacement);
+    }
+    buffer.has_anchor = false;
+    buffer.caret = buffer.clamp(buffer.caret);
+    buffer.finish();
+    buffer.seal();
+    return count;
+}
+
+bool has_upper(str text) {
+    for (int value in text.chars()) {
+        if (value >= 'A' && value <= 'Z') {
+            return true;
+        }
+    }
+    return false;
+}

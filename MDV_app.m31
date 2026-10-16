@@ -10,6 +10,7 @@ import MDV_caps;
 import MDV_render;
 import MDV_theme;
 import MDV_viewer;
+import date;
 import encoding.base64;
 import fs;
 import io;
@@ -97,6 +98,11 @@ pub type App {
     pub bool is_watching = true;
     /// Does `open` rather than `xdg-open` open a URL (macOS)?
     pub bool is_mac = false;
+    /// The last left press, for counting double and triple clicks.
+    pub int last_press_ns = 0;
+    pub int last_press_col = -1;
+    pub int last_press_row = -1;
+    pub int press_count = 0;
 }
 
 void App.reload() {
@@ -124,6 +130,57 @@ void App.open_file(str path) {
         case Err(io.Error error): {
             viewer.load_failed(path + ": " + error.to_str());
         }
+    }
+}
+
+/// Write `text` to `path`, and tell the viewer how it went.
+void App.save_file(str path, str text) {
+    match (io.write(path, text)) {
+        case Ok(int count): {
+            stamp = stamp_of(path);
+            viewer.saved(path);
+        }
+        case Err(io.Error error): {
+            viewer.save_failed(path + ": " + error.to_str());
+        }
+    }
+}
+
+/// Put `text` on the system clipboard with whichever tool there is (OSC 52
+/// has already been queued for terminals that take it, such as over ssh).
+void App.copy_system(str text) {
+    for (List<str> tool in copy_tools()) {
+        match (proc.run(tool, input: text.to_bytes(), timeout_ms: 2000, should_check: false, is_quiet: true)) {
+            case Ok(proc.Completed done): {
+                if (done.is_success()) {
+                    return;
+                }
+            }
+            case Err(proc.Error error): {
+            }
+        }
+    }
+}
+
+/// Ask the system clipboard for its text and paste it; when there is no
+/// tool (or nothing in it) paste what was last copied here.
+void App.paste_clipboard() {
+    for (List<str> tool in paste_tools()) {
+        match (proc.run(tool, timeout_ms: 2000, should_check: false, is_quiet: true)) {
+            case Ok(proc.Completed done): {
+                if (done.is_success() && done.stdout.size() > 0) {
+                    viewer.paste_text(text_of(done.stdout), "");
+                    return;
+                }
+            }
+            case Err(proc.Error error): {
+            }
+        }
+    }
+    if (viewer.clipboard.size() > 0) {
+        viewer.paste_text(viewer.clipboard, "");
+    } else {
+        viewer.message = "the clipboard is empty";
     }
 }
 
@@ -167,9 +224,16 @@ pub void App.serve() {
             }
             case Copy(str text): {
                 outbox.extend(copy_sequence(text));
+                copy_system(text);
             }
             case OpenUrl(str url): {
                 open_url(url);
+            }
+            case Save(str path, str text): {
+                save_file(path, text);
+            }
+            case Paste: {
+                paste_clipboard();
             }
         }
     }
@@ -180,18 +244,66 @@ pub TUI_app.Action App.handle(term.Event event) {
         case Key(term.Key pressed): {
             TUI_app.Action action = viewer.key(pressed);
             serve();
-            return action;
+            return settle(action);
         }
         case Mouse(term.Mouse mouse): {
+            count_clicks(mouse);
             TUI_app.Action action = viewer.mouse(mouse);
             serve();
-            return action;
+            return settle(action);
         }
         case Paste(str text): {
-            return TUI_app.Action.Continue;
+            viewer.paste_text(text, classify_paste(text));
+            serve();
+            return TUI_app.Action.Redraw;
         }
         case Unknown(bytes raw): {
             return TUI_app.Action.Continue;
+        }
+    }
+}
+
+/// A save that was the last thing before quitting lets the quit through.
+TUI_app.Action App.settle(TUI_app.Action action) {
+    if (viewer.should_quit) {
+        return TUI_app.Action.Quit;
+    }
+    return action;
+}
+
+/// Tell the viewer whether a left press is the first, second or third of a
+/// run of clicks on the same cell (within 450 ms).
+void App.count_clicks(term.Mouse report) {
+    match (report.kind) {
+        case Down(int button): {
+            if (button != 0) {
+                return;
+            }
+            int now = date.now_ns();
+            bool is_same = report.col == last_press_col && report.row == last_press_row;
+            if (is_same && now - last_press_ns < 450000000 && press_count < 3) {
+                press_count = press_count + 1;
+            } else {
+                press_count = 1;
+            }
+            last_press_ns = now;
+            last_press_col = report.col;
+            last_press_row = report.row;
+            viewer.click_count = press_count;
+        }
+        case Up(int released): {
+        }
+        case Drag(int dragged): {
+        }
+        case Moved: {
+        }
+        case ScrollUp: {
+        }
+        case ScrollDown: {
+        }
+        case ScrollLeft: {
+        }
+        case ScrollRight: {
         }
     }
 }
@@ -204,6 +316,12 @@ pub bool App.needs_redraw() {
     str now = stamp_of(viewer.name);
     if (now.size() == 0 || now == stamp) {
         return false;
+    }
+    if (viewer.buffer.is_dirty()) {
+        // Never read over unsaved work without asking.
+        stamp = now;
+        viewer.disk_changed();
+        return true;
     }
     reload();
     return true;
@@ -218,6 +336,43 @@ pub bytes App.take_output() {
     bytes out = outbox;
     outbox = [];
     return out;
+}
+
+/// The programs that read and write the system clipboard, tried in order; the
+/// first that exists and succeeds is used.
+List<List<str>> copy_tools() {
+    return [["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]];
+}
+
+List<List<str>> paste_tools() {
+    return [["pbpaste"], ["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"], ["xsel", "--clipboard", "--output"]];
+}
+
+/// What a bracketed paste is: "image" or "file" when it is one path to a
+/// file that exists (a dragged file arrives as its path), else "".
+str classify_paste(str text) {
+    str one = text.trim();
+    if (one.size() == 0 || one.contains("\n")) {
+        return "";
+    }
+    str path = one;
+    if (path.starts_with("file://")) {
+        path = path.substr(7, path.size());
+    }
+    if (path.starts_with("'") && path.ends_with("'") && path.size() > 2) {
+        path = path.substr(1, path.size() - 1);
+    }
+    if (!(path.starts_with("/") || path.starts_with("~/") || path.starts_with("./"))) {
+        return "";
+    }
+    if (!fs.is_file(path)) {
+        return "";
+    }
+    str lower = path.to_lower();
+    if (lower.ends_with(".png") || lower.ends_with(".jpg") || lower.ends_with(".jpeg") || lower.ends_with(".gif") || lower.ends_with(".webp") || lower.ends_with(".svg")) {
+        return "image";
+    }
+    return "file";
 }
 
 pub App open(MDV_viewer.Viewer viewer, MDV_theme.Theme theme, MDV_caps.Caps caps) {

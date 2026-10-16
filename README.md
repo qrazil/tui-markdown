@@ -1,10 +1,13 @@
 # tui-markdown
 
-An interactive, vim-keyed terminal markdown viewer written in
+A terminal markdown viewer and light editor, written in
 [m31](https://github.com/qrazil/m31), on the
-[tui](https://github.com/qrazil/tui) widget library and the
-[term-markdown](https://github.com/qrazil/term-markdown) parser. Think `glow`
-or `less`, with an outline popup, link following and a back stack.
+[tui](https://github.com/qrazil/tui) widget library, the
+[term-markdown](https://github.com/qrazil/term-markdown) parser and the
+[syntax](https://github.com/qrazil/syntax) highlighter. Think `glow` with the
+page of a VS Code preview: themes, an outline, link following and a back
+stack, and when you want to change something, Source and Live panes with the
+mouse and the keys of a desktop editor (not vim).
 
 ```
 tui-markdown README.md            read a file
@@ -84,13 +87,58 @@ the screen shows it (theme background, margins, padding) with no terminal, as
 ANSI text. `docs/screenshots/` has one per theme; `--zebra`, `--numbers`,
 `--scale on` and `--links on` apply to it as they do on screen.
 
-## Keys
+## Editing
+
+Three panes, switched from the header (click), with `F2`, or directly:
+
+| | |
+|---|---|
+| **Preview** (`Alt-P`) | the rendered page; read only, with the vim-flavoured movement keys below |
+| **Source** (`Alt-S`) | the markdown as written, highlighted, soft-wrapped, with a caret |
+| **Live** (`Alt-L`, or `e` in Preview) | the page rendered, except the block under the caret, which is source (as Obsidian's live preview) |
+
+It opens in Preview; `--mode source|live` (or `--edit`) opens in an editing
+pane. A task box ticked in Preview or Live changes the file like any other
+edit.
+
+| Key | Does |
+|---|---|
+| typing, arrows, `Home` `End` `PgUp` `PgDn`, `Ctrl`+arrows (word), `Shift` to select | what they do in any editor |
+| mouse | click places the caret, drag selects, double-click a word, triple-click a line, wheel scrolls; in Live a click on a rendered block turns it into source |
+| `Ctrl-A` `Ctrl-X` `Ctrl-C` `Ctrl-V` | select all, cut, copy, paste (system clipboard through `pbcopy`/`wl-copy`/`xclip`/`xsel` when there is one, and OSC 52); Ctrl-C and Ctrl-X with no selection take the line |
+| `Ctrl-Z` `Ctrl-Y` | undo, redo (a run of typing is one step) |
+| `Ctrl-S` | save (asks for a name for standard input) |
+| `Ctrl-F`, `Ctrl-R` | find, find and replace; `Enter`/`Up` next/previous, `Tab` switches fields, `Alt-A` replace all, `Alt-C` match case, `Esc` closes |
+| `Ctrl-P` or `F1` | command palette: every action, with its key |
+| `Ctrl-G` | go to heading |
+| `Ctrl-B` `Alt-I` `Alt-D` `Ctrl-E` `Ctrl-K` `Alt-M` | bold, italic, strikethrough, code, link, image |
+| `Alt-1` .. `Alt-6` | heading level (again removes it) |
+| `Ctrl-Q` | quit; asks when there is unsaved work |
+
+Markdown help while typing: `- ` `* ` `+ ` `1.` `- [ ]` start lists, and `Enter`
+continues them (on an empty item it ends the list, in a quote it continues
+the `>`, after an opening fence it types the closing one, at the end of a
+table row it adds a row); `Tab` / `Shift-Tab` nest and un-nest items and the
+ordered lists renumber themselves; `(` `[` `{` `"` `'` `` ` `` pair, typing the
+closing character steps over it and Backspace on an empty pair removes both,
+and `*` `_` `~` wrap a selection (`*` twice makes it bold); pasting a URL over
+a selection makes a link, and a dragged file arrives as `![name](path)` or
+`[name](path)`; pipe tables line up when the caret leaves a row and `Tab`
+moves between cells (a new row after the last). `--smart` (or the palette)
+turns on curly quotes, en dashes and ellipses.
+
+A change on disk while there are unsaved edits asks instead of reloading.
+`Ctrl-H` cannot be replace: a terminal sends the same byte for it as for
+Backspace. `Ctrl-I` (Tab), `Ctrl-M` (Enter) and `Ctrl-1`..`Ctrl-6` have the same
+problem, which is why italic and the headings are on `Alt`.
+
+## Keys in Preview
 
 | Key | Does |
 |---|---|
 | `j` `k`, arrows, `Enter` | scroll a line (a count works: `5j`) |
 | `Ctrl-d` `Ctrl-u` | half a page down / up |
-| `Ctrl-f` `Ctrl-b`, `Space`, PgDn/PgUp | a page down / up |
+| `Ctrl-b`, `Space`, PgDn/PgUp | a page up / down |
 | `gg` `G` | top / bottom; `12G` and `12gg` go to row 12 |
 | `]]` `[[` | next / previous heading (a count skips that many) |
 | `/` | search: type, `Enter` runs it, `Esc` cancels. Smart case: lower case matches any case, a capital makes it exact |
@@ -98,6 +146,7 @@ ANSI text. `docs/screenshots/` has one per theme; `--zebra`, `--numbers`,
 | `o` | outline of the headings: `j`/`k` move, `l`/`h` open and close, `Enter` goes there |
 | `b` | dock / undock the outline sidebar (click a heading to go there) |
 | `t` | next theme |
+| `e` | edit (Live) |
 | `Tab` `Shift-Tab` | focus the next / previous link; the target shows on the status line |
 | `Enter` | follow the focused link |
 | `Ctrl-o`, `Backspace` | back to where you were (block, offset and link focus are restored) |
