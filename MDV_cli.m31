@@ -17,13 +17,19 @@ import tui.app.TUI_app;
 import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
+/// Keep in step with `version` in the `deps` file.
+pub const str VERSION = "0.4.0";
+/// What `--theme` accepts, as the usage error lists them.
+const str THEME_NAMES = "dark, light, tokyonight, nightfox, gruvbox-material, plain";
 
 args.Parser parser() {
     args.Parser cli = args.Parser("tui-markdown", summary: "Read markdown in the terminal, with vim keys.");
-    cli.flag("cat", help: "print the rendering and exit (the default when standard output is not a terminal)");
-    cli.integer("width", help: "columns for --cat (default: the terminal's, or 80)", placeholder: "N");
+    cli.version = VERSION;
+    cli.epilog = "exit status: 0 ok, 1 could not read a file or run the terminal, 2 usage error";
+    cli.flag("cat", short: "c", help: "print the rendering and exit (the default when standard output is not a terminal)");
+    cli.integer("width", short: "w", help: "columns for --cat (default: the terminal's, or 80)", placeholder: "N", min: "1");
     cli.flag("dump", help: "print the page as the screen shows it (theme background, margins) at --width, with no terminal needed");
-    cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N");
+    cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N", min: "0");
     cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
     cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (kitty)", placeholder: "MODE");
     cli.value("links", help: "OSC 8 hyperlinks: on, off or auto", placeholder: "MODE");
@@ -35,7 +41,8 @@ args.Parser parser() {
     cli.flag("edit", help: "start in live mode (same as --mode live)");
     cli.flag("smart", help: "smart typography while typing: curly quotes, en dashes, ellipses");
     cli.flag("no-watch", help: "do not reload when the file changes");
-    cli.tail("files", help: "markdown files; with none, standard input", placeholder: "FILE");
+    cli.tail("files", help: "markdown files; with none, standard input; - is standard input", placeholder: "FILE");
+    cli.completions();
     return cli;
 }
 
@@ -276,6 +283,52 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
     }
 }
 
+// A value that is not one of the words its option takes. Said once, up front,
+// as a usage error (it used to warn and fall back to dark).
+str refuse_values(args.Parsed given) {
+    match (given.value("theme")) {
+        case Some(str name): {
+            if (MDV_theme.named(name).is_none()) {
+                return "'--theme' needs one of " + THEME_NAMES + ", and got '" + name + "'";
+            }
+        }
+        case None: {
+        }
+    }
+    List<str> switches = ["scale", "links"];
+    for (str name in switches) {
+        match (given.value(name)) {
+            case Some(str mode): {
+                if (mode != "on" && mode != "off" && mode != "auto") {
+                    return "'--" + name + "' needs on, off or auto, and got '" + mode + "'";
+                }
+            }
+            case None: {
+            }
+        }
+    }
+    match (given.value("colors")) {
+        case Some(str depth): {
+            if (depth != "16" && depth != "256" && depth != "24bit" && depth != "truecolor") {
+                return "'--colors' needs 16, 256 or 24bit, and got '" + depth + "'";
+            }
+        }
+        case None: {
+        }
+    }
+    match (given.value("mode")) {
+        case Some(str pane): {
+            str lower = pane.to_lower();
+            if (lower != "preview" && lower != "source" && lower != "live") {
+                return "'--mode' needs preview, source or live, and got '" + pane + "'";
+            }
+        }
+        case None: {
+        }
+    }
+    return "";
+}
+
 /// The whole program: `argv` without the program's own name; the exit status.
 pub int run(List<str> argv) {
     args.Parser cli = parser();
@@ -293,6 +346,27 @@ pub int run(List<str> argv) {
                 }
                 case None: {
                 }
+            }
+            match (given.version()) {
+                case Some(str text): {
+                    print(text);
+                    return 0;
+                }
+                case None: {
+                }
+            }
+            match (given.completions()) {
+                case Some(str script): {
+                    print(script);
+                    return 0;
+                }
+                case None: {
+                }
+            }
+            str refusal = refuse_values(given);
+            if (refusal != "") {
+                cli.fail(refusal);
+                return 2;
             }
             List<str> names = given.tail("files");
             if (names.size() == 0) {

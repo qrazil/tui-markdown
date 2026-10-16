@@ -318,6 +318,16 @@ check "a Latin-1 file is shown, not refused" yes "$([ -n "$latin" ] && echo yes 
 check "an empty file prints and exits 0" 0 "$(NO_COLOR=1 "$BIN" --cat "$WORK/empty.md" >/dev/null 2>&1; echo $?)"
 cd "$ROOT"
 
+# --- the command line: its own suite (tests/test_cli.sh) ---------------------------------------------
+
+TUI_MARKDOWN_BIN="$BIN" bash tests/test_cli.sh >"$WORK/cli.out" 2>&1
+cli_rc=$?
+cat "$WORK/cli.out"
+tally "command line (tests/test_cli.sh)" "$WORK/cli.out" >/dev/null
+if [ "$cli_rc" != 0 ]; then
+    bad "command line suite failed" "$(grep FAIL "$WORK/cli.out" | head -10)"
+fi
+
 # --- a real terminal ----------------------------------------------------------------------------
 
 mkdir -p "$WORK/pty"

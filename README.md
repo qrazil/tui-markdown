@@ -23,9 +23,33 @@ tui-markdown README.md | less -R  (a pipe on stdout is --cat automatically)
 curl -fsSL https://raw.githubusercontent.com/qrazil/tui-markdown/master/install.sh | sh
 ```
 
-Picks the release for your OS and CPU, unpacks it under `~/.local/opt/tui-markdown/<version>` and links the programs into `~/.local/bin`. `VERSION=v1.2.3` pins a release, `PREFIX=...` moves the install, `sh install.sh --uninstall` removes it.
+Picks the release for your OS and CPU, unpacks it under `~/.local/opt/tui-markdown/<version>` and links the programs into `~/.local/bin`. `--release v1.2.3` (or `VERSION=v1.2.3`) pins a release, `--prefix DIR` (or `PREFIX=...`) moves the install, `--libc gnu|musl` (or `LIBC=`) overrides detection, `-uninstall` removes it, `--help` lists them; piped from curl, pass them after `-s --`: `curl -fsSL <url> | sh -s -- --prefix /usr/local`. The grammar is Oro's: a mistyped option is an error naming the closest one (exit 2).
 
 On Alpine (musl) the installer picks the `-musl` Linux asset built by `scripts/ci-musl.sh`; `LIBC=gnu|musl` overrides detection, and a release without a musl asset falls back to the glibc one.
+
+## Command line
+
+The grammar is Oro's `args` (`lib/args`, m31's
+[`docs/cli-conventions.md`](https://github.com/qrazil/m31/blob/master/docs/cli-conventions.md)):
+`--width 40` and `--width=40`; a short option is two dashes and one letter
+(`--w 40`, `--c`); `-word` would be a command (there are none), so `-h` and `-w` are
+refused with a message that says what to write; `--help` is the only help; a
+mistyped option names the closest one; a file called `-x` is passed as `./-x`. A bad
+command line, or a value that is not one of an option's words (`--theme fancy`; it
+used to warn and fall back to dark), is an error on standard error with exit 2; a file
+that cannot be read is exit 1.
+
+| option | | default | |
+|---|---|---|---|
+| `--cat`, `--c` | switch | off; implied when stdout is not a terminal | print the rendering and exit |
+| `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
+| `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
+| `--no-watch` | switch | off | do not reload when the file changes |
+| `--version` | | | `tui-markdown 0.4.0` |
+| `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
+
+The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
+`--zebra`, `--numbers`, `--side`, `--mode`, `--edit`, `--smart`) are in `--help`.
 
 ## What it shows
 
