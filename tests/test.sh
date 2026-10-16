@@ -37,6 +37,14 @@ fi
 
 LANGC=${LANGC:-./m31c}
 export LANGC M31_ROOT
+# The program reads the environment to decide colour depth, links and scaled
+# text (TERM, COLORTERM, TERM_PROGRAM, KITTY_WINDOW_ID, ...). A golden must not
+# depend on the machine it is made on, so every such variable is cleared here
+# and TERM is pinned; a test that wants a capability asks for it with a flag.
+for hostile in COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION KITTY_WINDOW_ID WEZTERM_EXECUTABLE GHOSTTY_RESOURCES_DIR LC_TERMINAL VTE_VERSION WT_SESSION KONSOLE_VERSION NO_COLOR COLORFGBG COLUMNS LINES; do
+    unset "$hostile"
+done
+export TERM=xterm-256color
 ROOT=$(pwd)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -175,7 +183,7 @@ EOF2
 
 # The styled one: dark theme, 256 colours, no NO_COLOR.
 got="$WORK/golden-tour-dark.txt"
-(cd tests/fixtures && env -u NO_COLOR TERM=xterm-256color "$BIN" --cat --theme dark --width 40 tour.md) >"$got" 2>/dev/null
+(cd tests/fixtures && env -u NO_COLOR TERM=xterm-256color "$BIN" --cat --theme dark --colors 256 --width 40 tour.md) >"$got" 2>/dev/null
 golden_count=$((golden_count + 1))
 if [ -n "${BLESS:-}" ]; then
     cp "$got" tests/golden/tour-dark-40.txt

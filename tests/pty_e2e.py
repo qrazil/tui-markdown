@@ -202,7 +202,7 @@ class Session:
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         e = dict(os.environ)
         e["TERM"] = "xterm-256color"
-        for k in ("NO_COLOR", "COLORFGBG"):
+        for k in ("NO_COLOR", "COLORFGBG", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "KITTY_WINDOW_ID", "WEZTERM_EXECUTABLE", "GHOSTTY_RESOURCES_DIR", "LC_TERMINAL", "VTE_VERSION", "WT_SESSION", "KONSOLE_VERSION"):
             e.pop(k, None)
         if env:
             e.update(env)
