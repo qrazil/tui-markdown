@@ -15,6 +15,7 @@
 //   - task-list markers. `- [x] done` is an ordinary item upstream; here the
 //     item is flagged and the marker's three characters get their own span.
 
+import MDV_code;
 import MDV_inline;
 import MDV_model;
 import markdown.MD_blocks;
@@ -28,6 +29,9 @@ type Prep {
     List<MDV_model.Link> links;
     Map<str, int> slugs;
     Map<str, MD_doc.Reference> references;
+    /// Footnote definitions by label, and the labels in order of first use.
+    Map<str, str> notes;
+    List<str> used;
 }
 
 /// Find `needle` on a source line at or after the cursor; the 1-based line,
@@ -53,7 +57,108 @@ void Prep.advance(int line, int count) {
 }
 
 List<MDV_model.Span> Prep.inline(str raw, int style) {
-    return MDV_inline.parse(MD_inlines.render(raw, references), links, style);
+    return decorate(MDV_inline.parse(MD_inlines.render(raw, references), links, style));
+}
+
+/// Strikethrough (`~~x~~`) and footnote references (`[^x]`), which the
+/// parser leaves as text.
+List<MDV_model.Span> Prep.decorate(List<MDV_model.Span> spans) {
+    int markers = 0;
+    bool has_ref = false;
+    for (MDV_model.Span span in spans) {
+        if (span.has_bits(MDV_model.CODE)) {
+            continue;
+        }
+        if (span.text.contains("~~")) {
+            markers = markers + span.text.split("~~").size() - 1;
+        }
+        if (notes.size() > 0 && span.text.contains("[^")) {
+            has_ref = true;
+        }
+    }
+    if (markers < 2 && !has_ref) {
+        return spans;
+    }
+    int usable = markers - markers % 2;
+    int seen = 0;
+    bool is_struck = false;
+    List<MDV_model.Span> out = [];
+    for (MDV_model.Span span in spans) {
+        if (span.has_bits(MDV_model.CODE)) {
+            out.push(span);
+            continue;
+        }
+        List<str> pieces = span.text.split("~~");
+        for (int index in 0 .. pieces.size()) {
+            if (index > 0) {
+                if (seen < usable) {
+                    is_struck = !is_struck;
+                } else {
+                    out.push(MDV_model.Span("~~", style: span.style, link: span.link));
+                }
+                seen = seen + 1;
+            }
+            int bits = span.style;
+            if (is_struck) {
+                bits = bits | MDV_model.STRIKE;
+            }
+            note_refs(out, pieces[index], bits, span.link);
+        }
+    }
+    return out;
+}
+
+/// `text` onto `out`, its known footnote references as superscript spans.
+void Prep.note_refs(List<MDV_model.Span> out, str text, int bits, int link) {
+    str rest = text;
+    while (rest.size() > 0) {
+        int slot = -1;
+        match (rest.index_of("[^")) {
+            case Some(int found): {
+                slot = found;
+            }
+            case None: {
+            }
+        }
+        if (slot < 0) {
+            break;
+        }
+        int shut = -1;
+        match (rest.substr(slot, rest.size()).index_of("]")) {
+            case Some(int found): {
+                shut = slot + found;
+            }
+            case None: {
+            }
+        }
+        if (shut < 0) {
+            break;
+        }
+        str label = rest.substr(slot + 2, shut);
+        if (!notes.contains(label)) {
+            out.push(MDV_model.Span(rest.substr(0, shut + 1), style: bits, link: link));
+            rest = rest.substr(shut + 1, rest.size());
+            continue;
+        }
+        if (slot > 0) {
+            out.push(MDV_model.Span(rest.substr(0, slot), style: bits, link: link));
+        }
+        int number = 0;
+        match (used.index_of(label)) {
+            case Some(int seen_slot): {
+                number = seen_slot + 1;
+            }
+            case None: {
+                used.push(label);
+                number = used.size();
+            }
+        }
+        out.push(MDV_model.Span(superscript(number), style: bits | MDV_model.FOOT, link: link));
+        rest = rest.substr(shut + 1, rest.size());
+    }
+    if (rest.size() > 0) {
+        out.push(MDV_model.Span(rest, style: bits, link: link));
+    }
 }
 
 MDV_model.Block Prep.paragraph(str raw) {
@@ -99,7 +204,7 @@ MDV_model.Block Prep.fence(MD_doc.Code code) {
         line = line - 1;
     }
     advance(line, body.size() + 2);
-    return MDV_model.Block.Code(MDV_model.CodeBlock(code.info, body, line: line));
+    return MDV_model.Block.Code(MDV_model.CodeBlock(code.info, body, shown: MDV_code.highlight(MDV_code.language_of(code.info), body), line: line));
 }
 
 MDV_model.Block Prep.rule() {
@@ -164,7 +269,7 @@ List<MDV_model.Block> Prep.blocks(List<MD_doc.Block> source) {
                 out.push(fence(code));
             }
             case Quoted(MD_doc.Quote quote): {
-                out.push(MDV_model.Block.Quote(blocks(quote.kids)));
+                out.push(quote_block(quote));
             }
             case Bullets(MD_doc.Listing listing): {
                 out.push(listing_block(listing));
@@ -175,6 +280,124 @@ List<MDV_model.Block> Prep.blocks(List<MD_doc.Block> source) {
         }
     }
     return out;
+}
+
+/// A block quote, or a callout when it opens with `[!NOTE]` and the like.
+MDV_model.Block Prep.quote_block(MD_doc.Quote quote) {
+    if (quote.kids.size() > 0) {
+        match (quote.kids[0]) {
+            case Paragraph(str raw): {
+                str head = raw.trim();
+                if (head.starts_with("[!")) {
+                    int shut = -1;
+                    match (head.index_of("]")) {
+                        case Some(int found): {
+                            shut = found;
+                        }
+                        case None: {
+                        }
+                    }
+                    int kind = 0;
+                    if (shut > 2) {
+                        kind = callout_kind(head.substr(2, shut));
+                    }
+                    if (kind > 0) {
+                        str tail = head.substr(shut + 1, head.size());
+                        if (tail.starts_with("-") || tail.starts_with("+")) {
+                            tail = tail.substr(1, tail.size());
+                        }
+                        str title = callout_title(kind);
+                        str body = "";
+                        match (tail.index_of("\n")) {
+                            case Some(int newline): {
+                                if (tail.substr(0, newline).trim().size() > 0) {
+                                    title = tail.substr(0, newline).trim();
+                                }
+                                body = tail.substr(newline + 1, tail.size());
+                            }
+                            case None: {
+                                if (tail.trim().size() > 0) {
+                                    title = tail.trim();
+                                }
+                            }
+                        }
+                        int line = locate(first_line(raw));
+                        List<MD_doc.Block> rest = [];
+                        for (int index in 1 .. quote.kids.size()) {
+                            rest.push(quote.kids[index]);
+                        }
+                        List<MDV_model.Block> kids = [];
+                        if (body.trim().size() > 0) {
+                            kids.push(paragraph(body));
+                        }
+                        for (MDV_model.Block more in blocks(rest)) {
+                            kids.push(more);
+                        }
+                        return MDV_model.Block.Callout(MDV_model.CalloutBlock(kind, title, kids, line: line));
+                    }
+                }
+            }
+            case Rule: {
+            }
+            case Heading(MD_doc.Heading skipped_heading): {
+            }
+            case Fence(MD_doc.Code skipped_code): {
+            }
+            case Quoted(MD_doc.Quote skipped_quote): {
+            }
+            case Bullets(MD_doc.Listing skipped_list): {
+            }
+            case Grid(MD_doc.Table skipped_grid): {
+            }
+        }
+    }
+    return MDV_model.Block.Quote(blocks(quote.kids));
+}
+
+/// Superscript digits for footnote number `number`.
+str superscript(int number) {
+    List<str> marks = ["\u{2070}", "\u{b9}", "\u{b2}", "\u{b3}", "\u{2074}", "\u{2075}", "\u{2076}", "\u{2077}", "\u{2078}", "\u{2079}"];
+    List<str> out = [];
+    for (int digit in str(number).chars()) {
+        out.push(marks[digit - '0']);
+    }
+    return out.join("");
+}
+
+int callout_kind(str name) {
+    str upper = name.to_upper();
+    if (upper == "NOTE" || upper == "INFO") {
+        return 1;
+    }
+    if (upper == "TIP" || upper == "HINT") {
+        return 2;
+    }
+    if (upper == "IMPORTANT") {
+        return 3;
+    }
+    if (upper == "WARNING") {
+        return 4;
+    }
+    if (upper == "CAUTION" || upper == "DANGER") {
+        return 5;
+    }
+    return 0;
+}
+
+str callout_title(int kind) {
+    if (kind == 1) {
+        return "Note";
+    }
+    if (kind == 2) {
+        return "Tip";
+    }
+    if (kind == 3) {
+        return "Important";
+    }
+    if (kind == 4) {
+        return "Warning";
+    }
+    return "Caution";
 }
 
 /// GitHub's anchor for heading text: lower case, punctuation dropped, spaces
@@ -251,6 +474,15 @@ int task_of(List<MDV_model.Block> kids) {
             }
             return 0;
         }
+        case Callout(MDV_model.CalloutBlock callout_item): {
+            return 0;
+        }
+        case Meta(MDV_model.MetaBlock meta_item): {
+            return 0;
+        }
+        case Notes(MDV_model.NoteBlock notes_item): {
+            return 0;
+        }
         case Rule(int rule_line): {
             return 0;
         }
@@ -291,6 +523,15 @@ List<MDV_model.Block> mark_task(List<MDV_model.Block> kids, int task) {
                 }
                 out.push(MDV_model.Block.Para(MDV_model.Text(spans, line: text.line)));
             }
+            case Callout(MDV_model.CalloutBlock callout_item): {
+                out.push(kids[0]);
+            }
+            case Meta(MDV_model.MetaBlock meta_item): {
+                out.push(kids[0]);
+            }
+            case Notes(MDV_model.NoteBlock notes_item): {
+                out.push(kids[0]);
+            }
             case Rule(int rule_line): {
                 out.push(kids[0]);
             }
@@ -314,12 +555,113 @@ List<MDV_model.Block> mark_task(List<MDV_model.Block> kids, int task) {
     return out;
 }
 
+/// `source` split into front matter lines (none when it has none) and the
+/// rest, the front matter's lines blanked so line numbers still count.
+type Front {
+    List<str> meta;
+    str body;
+    int count;
+}
+
+Front split_front(str source) {
+    List<str> lines = source.split("\n");
+    if (lines.size() < 2 || lines[0].trim() != "---") {
+        return Front([], source, 0);
+    }
+    int limit = lines.size();
+    if (limit > 200) {
+        limit = 200;
+    }
+    for (int index in 1 .. limit) {
+        str each = lines[index].trim();
+        if (each == "---" || each == "...") {
+            List<str> meta = [];
+            List<str> rest = [];
+            for (int slot in 0 .. lines.size()) {
+                if (slot <= index) {
+                    rest.push("");
+                    if (slot > 0 && slot < index) {
+                        meta.push(lines[slot]);
+                    }
+                } else {
+                    rest.push(lines[slot]);
+                }
+            }
+            return Front(meta, rest.join("\n"), index + 1);
+        }
+    }
+    return Front([], source, 0);
+}
+
+/// Pull `[^label]: text` definitions out of `body` (blanking their lines);
+/// fenced code is left alone.
+str take_notes(str body, Map<str, str> notes, List<str> order) {
+    if (!body.contains("[^")) {
+        return body;
+    }
+    List<str> lines = body.split("\n");
+    List<str> out = [];
+    bool is_fenced = false;
+    str current = "";
+    for (str line in lines) {
+        str trimmed = line.trim();
+        if (trimmed.starts_with("```") || trimmed.starts_with("~~~")) {
+            is_fenced = !is_fenced;
+        }
+        if (!is_fenced && line.starts_with("[^")) {
+            match (line.index_of("]:")) {
+                case Some(int shut): {
+                    current = line.substr(2, shut);
+                    notes.set(current, line.substr(shut + 2, line.size()).trim());
+                    order.push(current);
+                    out.push("");
+                    continue;
+                }
+                case None: {
+                }
+            }
+        }
+        if (!is_fenced && current.size() > 0 && (line.starts_with("  ") || line.starts_with("\t")) && trimmed.size() > 0) {
+            notes.set(current, notes.get(current).or("") + " " + trimmed);
+            out.push("");
+            continue;
+        }
+        current = "";
+        out.push(line);
+    }
+    return out.join("\n");
+}
+
 /// The viewer's model of the markdown in `source`.
 pub MDV_model.Document prepare(str source) {
-    MD_doc.Document parsed = MD_blocks.parse(source);
-    List<str> lines = source.split("\n");
-    Prep prep = Prep(lines, [], {}, parsed.references);
+    Front front = split_front(source);
+    Map<str, str> notes = {};
+    List<str> defined = [];
+    str body = take_notes(front.body, notes, defined);
+    MD_doc.Document parsed = MD_blocks.parse(body);
+    List<str> lines = body.split("\n");
+    Prep prep = Prep(lines, [], {}, parsed.references, notes, []);
     List<MDV_model.Block> blocks = prep.blocks(parsed.blocks);
+    if (front.meta.size() > 0) {
+        blocks.insert(0, MDV_model.Block.Meta(MDV_model.MetaBlock(front.meta, line: 1)));
+    }
+    if (notes.size() > 0) {
+        List<str> order = [];
+        for (str label in prep.used) {
+            order.push(label);
+        }
+        for (str label in defined) {
+            if (!order.contains(label)) {
+                order.push(label);
+            }
+        }
+        List<MDV_model.Text> texts = [];
+        for (str label in order) {
+            List<MDV_model.Span> shown = prep.inline(notes.get(label).or(""), MDV_model.FOOT);
+            texts.push(MDV_model.Text(shown, line: 0));
+        }
+        blocks.push(MDV_model.Block.Notes(MDV_model.NoteBlock(texts)));
+    }
     int count = lines.size();
     if (count > 0 && lines[count - 1] == "") {
         count = count - 1;

@@ -1,35 +1,93 @@
 // What a span looks like: style bits to terminal colours.
 //
 // A layout says what each run IS (`MDV_model` style bits); this module is the
-// only place that says what that looks like. Two palettes, light and dark,
-// in the xterm 256-colour palette so any terminal that has colour at all
-// shows something sensible (the diff renderer folds them to 16 colours when
-// it must). `plain()` is the third theme, for NO_COLOR: no colour and no
-// attribute either, so a pipe gets text.
+// only place that says what that looks like. A theme is a small palette of
+// named colours (background, text, a dim grey, and the six or seven hues of a
+// colour scheme) from which everything else is derived: tints for block
+// quotes, callouts, code cards and table headers are mixes of the background
+// with a hue, so a new scheme is one table of hex values and nothing else.
+//
+// Colours are 24-bit; `TUI_style.sgr` folds them to the 256 or 16 colours a
+// terminal has when it must, so no theme needs a second table. `plain()` is
+// the theme for NO_COLOR: no colour and no attribute either, so a pipe gets
+// text.
 
 import MDV_model;
 import tui.core.TUI_style;
+
+/// The colours a scheme is made of, each 0xRRGGBB.
+pub type Palette {
+    pub int page = 0;
+    pub int ink = 0;
+    /// Comments and chrome.
+    pub int dim = 0;
+    pub int red = 0;
+    pub int orange = 0;
+    pub int yellow = 0;
+    pub int green = 0;
+    pub int cyan = 0;
+    pub int blue = 0;
+    pub int purple = 0;
+    /// The selection's background.
+    pub int selection = 0;
+}
 
 pub type Theme {
     pub str name;
     pub bool is_dark;
     /// No colour, no attributes: text only.
     pub bool is_plain = false;
+    pub Palette colours = Palette();
 }
 
+Palette palette(int page, int ink, int dim, int red, int orange, int yellow, int green, int cyan, int blue, int purple, int selection) {
+    Palette out = Palette();
+    out.page = page;
+    out.ink = ink;
+    out.dim = dim;
+    out.red = red;
+    out.orange = orange;
+    out.yellow = yellow;
+    out.green = green;
+    out.cyan = cyan;
+    out.blue = blue;
+    out.purple = purple;
+    out.selection = selection;
+    return out;
+}
+
+/// GitHub's dark palette.
 pub Theme dark() {
-    return Theme("dark", true);
+    return Theme("dark", true, colours: palette(0x0d1117, 0xe6edf3, 0x8b949e, 0xf85149, 0xdb6d28, 0xd29922, 0x3fb950, 0x39c5cf, 0x58a6ff, 0xa371f7, 0x264f78));
 }
 
+/// GitHub's light palette.
 pub Theme light() {
-    return Theme("light", false);
+    return Theme("light", false, colours: palette(0xffffff, 0x1f2328, 0x59636e, 0xd1242f, 0xbc4c00, 0x9a6700, 0x1a7f37, 0x0a7ea4, 0x0969da, 0x8250df, 0xb6e3ff));
+}
+
+pub Theme tokyonight() {
+    return Theme("tokyonight", true, colours: palette(0x1a1b26, 0xc0caf5, 0x565f89, 0xf7768e, 0xff9e64, 0xe0af68, 0x9ece6a, 0x7dcfff, 0x7aa2f7, 0xbb9af7, 0x283457));
+}
+
+pub Theme nightfox() {
+    return Theme("nightfox", true, colours: palette(0x192330, 0xcdcecf, 0x738091, 0xc94f6d, 0xf4a261, 0xdbc074, 0x81b29a, 0x63cdcf, 0x719cd6, 0x9d79d6, 0x2b3b51));
+}
+
+pub Theme gruvbox() {
+    return Theme("gruvbox-material", true, colours: palette(0x282828, 0xd4be98, 0x928374, 0xea6962, 0xe78a4e, 0xd8a657, 0xa9b665, 0x89b482, 0x7daea3, 0xd3869b, 0x45403d));
 }
 
 pub Theme plain() {
     return Theme("plain", true, is_plain: true);
 }
 
-/// The theme called `name` ("dark", "light", "plain"), if there is one.
+/// The names `named` knows, in the order a menu shows them.
+pub List<str> names() {
+    return ["dark", "light", "tokyonight", "nightfox", "gruvbox-material", "plain"];
+}
+
+/// The theme called `name`, if there is one.
 pub Option<Theme> named(str name) {
     if (name == "dark") {
         return Option<Theme>.Some(dark());
@@ -37,51 +95,161 @@ pub Option<Theme> named(str name) {
     if (name == "light") {
         return Option<Theme>.Some(light());
     }
+    if (name == "tokyonight") {
+        return Option<Theme>.Some(tokyonight());
+    }
+    if (name == "nightfox") {
+        return Option<Theme>.Some(nightfox());
+    }
+    if (name == "gruvbox-material" || name == "gruvbox") {
+        return Option<Theme>.Some(gruvbox());
+    }
     if (name == "plain") {
         return Option<Theme>.Some(plain());
     }
     return Option<Theme>.None;
 }
 
-TUI_style.Colour palette(int index) {
-    return TUI_style.Colour.Indexed(index);
+/// The theme after `current` in `names()`, wrapping; plain is skipped.
+pub Theme next_after(Theme current) {
+    List<str> all = names();
+    int slot = all.index_of(current.name).or(0);
+    int target = (slot + 1) % (all.size() - 1);
+    return named(all[target]).or(dark());
 }
 
-int heading_colour(Theme theme, int level) {
-    if (theme.is_dark) {
-        if (level == 1) {
-            return 39;
-        }
-        if (level == 2) {
-            return 75;
-        }
-        if (level == 3) {
-            return 114;
-        }
-        if (level == 4) {
-            return 180;
-        }
-        if (level == 5) {
-            return 176;
-        }
-        return 245;
+// --- colour arithmetic ---------------------------------------------------------------
+
+/// `from` moved `percent` of the way to `toward`, per channel.
+pub int mix(int from, int toward, int percent) {
+    int red = channel(from, 16) + (channel(toward, 16) - channel(from, 16)) * percent / 100;
+    int green = channel(from, 8) + (channel(toward, 8) - channel(from, 8)) * percent / 100;
+    int blue = channel(from, 0) + (channel(toward, 0) - channel(from, 0)) * percent / 100;
+    return red * 65536 + green * 256 + blue;
+}
+
+int channel(int rgb, int shift) {
+    if (shift == 16) {
+        return rgb / 65536 % 256;
     }
+    if (shift == 8) {
+        return rgb / 256 % 256;
+    }
+    return rgb % 256;
+}
+
+TUI_style.Colour colour(int rgb) {
+    return TUI_style.Colour.Rgb(channel(rgb, 16), channel(rgb, 8), channel(rgb, 0));
+}
+
+// --- derived shades ------------------------------------------------------------------
+
+int card_bg(Palette pal) {
+    return mix(pal.page, pal.ink, 7);
+}
+
+int chip_bg(Palette pal) {
+    return mix(pal.page, pal.ink, 16);
+}
+
+int zebra_bg(Palette pal) {
+    return mix(pal.page, pal.ink, 5);
+}
+
+int head_bg(Palette pal) {
+    return mix(pal.page, pal.blue, 18);
+}
+
+int band_bg(Palette pal) {
+    return mix(pal.page, pal.blue, 34);
+}
+
+/// The hue of callout `kind` (1 note .. 5 caution).
+pub int callout_hue(Palette pal, int kind) {
+    if (kind == 1) {
+        return pal.blue;
+    }
+    if (kind == 2) {
+        return pal.green;
+    }
+    if (kind == 3) {
+        return pal.purple;
+    }
+    if (kind == 4) {
+        return pal.yellow;
+    }
+    if (kind == 5) {
+        return pal.red;
+    }
+    return pal.dim;
+}
+
+int tint_bg(Palette pal, int kind) {
+    if (kind == 0) {
+        return mix(pal.page, pal.dim, 16);
+    }
+    return mix(pal.page, callout_hue(pal, kind), 11);
+}
+
+int heading_hue(Palette pal, int level) {
     if (level == 1) {
-        return 25;
+        return pal.ink;
     }
     if (level == 2) {
-        return 31;
+        return pal.blue;
     }
     if (level == 3) {
-        return 28;
+        return pal.green;
     }
     if (level == 4) {
-        return 94;
+        return pal.yellow;
     }
     if (level == 5) {
-        return 90;
+        return pal.purple;
     }
-    return 240;
+    return pal.cyan;
+}
+
+int syntax_hue(Palette pal, int class_value) {
+    // COMMENT STRING NUMBER KEYWORD TYPE FUNCTION PREPROC CONSTANT OPERATOR SPECIAL TITLE
+    if (class_value == 1) {
+        return pal.dim;
+    }
+    if (class_value == 2) {
+        return pal.green;
+    }
+    if (class_value == 3) {
+        return pal.orange;
+    }
+    if (class_value == 4) {
+        return pal.purple;
+    }
+    if (class_value == 5) {
+        return pal.yellow;
+    }
+    if (class_value == 6) {
+        return pal.blue;
+    }
+    if (class_value == 7) {
+        return pal.cyan;
+    }
+    if (class_value == 8) {
+        return pal.orange;
+    }
+    if (class_value == 9) {
+        return pal.cyan;
+    }
+    if (class_value == 10) {
+        return pal.cyan;
+    }
+    if (class_value == 11) {
+        return pal.yellow;
+    }
+    return pal.ink;
+}
+
+bool is_on(int bits, int bit) {
+    return (bits & bit) != 0;
 }
 
 /// The style of a span whose style bits are `bits`.
@@ -89,80 +257,126 @@ pub TUI_style.Style style_for(Theme theme, int bits) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
+    Palette pal = theme.colours;
     int attrs = 0;
-    TUI_style.Colour foreground = TUI_style.Colour.Default;
-    TUI_style.Colour background = TUI_style.Colour.Default;
+    int fore = pal.ink;
+    int back = pal.page;
     int level = MDV_model.level_of(bits);
-    if ((bits & MDV_model.BOLD) != 0) {
+    int kind = MDV_model.callout_of(bits);
+    if (is_on(bits, MDV_model.BOLD)) {
         attrs = attrs | TUI_style.BOLD;
     }
-    if ((bits & MDV_model.ITALIC) != 0) {
+    if (is_on(bits, MDV_model.ITALIC)) {
         attrs = attrs | TUI_style.ITALIC;
     }
-    if ((bits & MDV_model.STRIKE) != 0) {
+    if (is_on(bits, MDV_model.STRIKE)) {
         attrs = attrs | TUI_style.STRIKE;
+        fore = mix(pal.ink, pal.dim, 55);
+    }
+    if (is_on(bits, MDV_model.QUOTE)) {
+        back = tint_bg(pal, kind);
+        fore = mix(pal.ink, pal.dim, 15);
+    }
+    if (is_on(bits, MDV_model.ZEBRA)) {
+        back = zebra_bg(pal);
+    }
+    if (is_on(bits, MDV_model.HEAD_CELL)) {
+        back = head_bg(pal);
+        fore = pal.blue;
+        attrs = attrs | TUI_style.BOLD;
     }
     if (level > 0) {
-        foreground = palette(heading_colour(theme, level));
-    }
-    if ((bits & MDV_model.CODE) != 0) {
-        if (theme.is_dark) {
-            foreground = palette(216);
-            background = palette(236);
-        } else {
-            foreground = palette(124);
-            background = palette(254);
+        fore = heading_hue(pal, level);
+        attrs = attrs | TUI_style.BOLD;
+        if (level == 1 && is_on(bits, MDV_model.BANNER)) {
+            back = band_bg(pal);
+        }
+        if (level == 5) {
+            attrs = attrs | TUI_style.ITALIC;
         }
     }
-    if ((bits & MDV_model.BLOCK) != 0) {
-        if (theme.is_dark) {
-            foreground = palette(252);
-            background = palette(235);
-        } else {
-            foreground = palette(236);
-            background = palette(254);
-        }
+    if (is_on(bits, MDV_model.CODE)) {
+        fore = pal.orange;
+        back = chip_bg(pal);
     }
-    if ((bits & MDV_model.LINK) != 0) {
+    if (is_on(bits, MDV_model.LINK)) {
         attrs = attrs | TUI_style.UNDERLINE;
-        if (theme.is_dark) {
-            foreground = palette(75);
-        } else {
-            foreground = palette(25);
+        fore = pal.cyan;
+    }
+    if (is_on(bits, MDV_model.BLOCK) || is_on(bits, MDV_model.META)) {
+        back = card_bg(pal);
+        fore = pal.ink;
+        int class_value = MDV_model.syntax_of(bits);
+        if (class_value >= 0) {
+            fore = syntax_hue(pal, class_value + 0);
+            if (class_value == 1) {
+                attrs = attrs | TUI_style.ITALIC;
+            }
+        }
+        if (is_on(bits, MDV_model.META)) {
+            fore = pal.dim;
         }
     }
-    if ((bits & MDV_model.IMAGE) != 0) {
+    if (is_on(bits, MDV_model.CHIP)) {
+        back = chip_bg(pal);
+        fore = pal.cyan;
+        attrs = attrs | TUI_style.BOLD;
+    }
+    if (is_on(bits, MDV_model.GUTTER)) {
+        fore = pal.dim;
+    }
+    if (is_on(bits, MDV_model.IMAGE)) {
         attrs = attrs | TUI_style.ITALIC;
     }
-    if ((bits & MDV_model.TASK) != 0) {
-        attrs = attrs | TUI_style.BOLD;
-        if (theme.is_dark) {
-            foreground = palette(114);
-        } else {
-            foreground = palette(28);
+    if (is_on(bits, MDV_model.FOOT)) {
+        fore = pal.purple;
+    }
+    if (is_on(bits, MDV_model.DECO)) {
+        if (is_on(bits, MDV_model.BULLET) || is_on(bits, MDV_model.TASK)) {
+            fore = pal.blue;
+            attrs = attrs | TUI_style.BOLD;
+        } else if (is_on(bits, MDV_model.GUIDE) || is_on(bits, MDV_model.RULE) || is_on(bits, MDV_model.GUTTER)) {
+            fore = mix(pal.page, pal.dim, 70);
+        } else if (is_on(bits, MDV_model.BORDER)) {
+            fore = mix(pal.page, pal.dim, 80);
+            if (kind > 0) {
+                fore = callout_hue(pal, kind);
+            }
+        } else if (is_on(bits, MDV_model.TITLE)) {
+            fore = callout_hue(pal, kind);
+            attrs = attrs | TUI_style.BOLD;
+        } else if (is_on(bits, MDV_model.UNDER)) {
+            fore = mix(pal.page, heading_hue(pal, level), 60);
+            if (level == 1) {
+                fore = mix(pal.page, pal.blue, 75);
+            }
+            back = pal.page;
+        } else if (is_on(bits, MDV_model.BANNER) && level > 1) {
+            fore = heading_hue(pal, level);
+        } else if (is_on(bits, MDV_model.QUOTE)) {
+            fore = mix(pal.page, pal.dim, 90);
+            if (kind > 0) {
+                fore = callout_hue(pal, kind);
+            }
+        } else if (is_on(bits, MDV_model.IMAGE)) {
+            fore = pal.dim;
+        }
+        if (is_on(bits, MDV_model.BANNER) && level == 1 && !is_on(bits, MDV_model.UNDER)) {
+            fore = pal.ink;
         }
     }
-    if ((bits & MDV_model.HEAD_CELL) != 0 && level == 0) {
-        attrs = attrs | TUI_style.BOLD;
+    if (is_on(bits, MDV_model.SELECTED)) {
+        back = pal.selection;
     }
-    // Chrome is quiet, except where it is the heading's own `##` or a code
-    // block's padding, which keep their colour.
-    if ((bits & MDV_model.DECO) != 0 && level == 0 && (bits & MDV_model.BLOCK) == 0 && (bits & MDV_model.IMAGE) == 0) {
-        attrs = attrs | TUI_style.DIM;
-        if (theme.is_dark) {
-            foreground = palette(244);
-        } else {
-            foreground = palette(246);
-        }
+    return TUI_style.Style(foreground: colour(fore), background: colour(back), attrs: attrs);
+}
+
+/// The base style of the whole screen: text on the scheme's background.
+pub TUI_style.Style base_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style();
     }
-    if ((bits & MDV_model.DECO) != 0 && (bits & MDV_model.BLOCK) != 0) {
-        // Padding of a code block: background only.
-        foreground = palette(252);
-        if (!theme.is_dark) {
-            foreground = palette(236);
-        }
-    }
-    return TUI_style.Style(foreground: foreground, background: background, attrs: attrs);
+    return TUI_style.Style(foreground: colour(theme.colours.ink), background: colour(theme.colours.page));
 }
 
 /// The style of a search hit; the current one stands out from the rest.
@@ -173,10 +387,11 @@ pub TUI_style.Style hit_style(Theme theme, bool is_current) {
         }
         return TUI_style.Style(attrs: TUI_style.REVERSE);
     }
+    Palette pal = theme.colours;
     if (is_current) {
-        return TUI_style.Style(foreground: palette(16), background: palette(214), attrs: TUI_style.BOLD);
+        return TUI_style.Style(foreground: colour(pal.page), background: colour(pal.orange), attrs: TUI_style.BOLD);
     }
-    return TUI_style.Style(foreground: palette(16), background: palette(180));
+    return TUI_style.Style(foreground: colour(pal.page), background: colour(pal.yellow));
 }
 
 /// `base`, marked as the focused link.
@@ -184,15 +399,31 @@ pub TUI_style.Style focus_style(Theme theme, TUI_style.Style base) {
     return base.with_attrs(base.attrs | TUI_style.REVERSE | TUI_style.BOLD);
 }
 
-/// The status line.
+/// The status line and the toolbar.
 pub TUI_style.Style status_style(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style(attrs: TUI_style.REVERSE);
     }
-    if (theme.is_dark) {
-        return TUI_style.Style(foreground: palette(252), background: palette(238));
+    Palette pal = theme.colours;
+    return TUI_style.Style(foreground: colour(pal.ink), background: colour(mix(pal.page, pal.ink, 12)));
+}
+
+/// A status-line segment that is a button or a mode label.
+pub TUI_style.Style accent_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style(attrs: TUI_style.REVERSE | TUI_style.BOLD);
     }
-    return TUI_style.Style(foreground: palette(236), background: palette(252));
+    Palette pal = theme.colours;
+    return TUI_style.Style(foreground: colour(pal.page), background: colour(pal.blue), attrs: TUI_style.BOLD);
+}
+
+/// The dim text of chrome outside the document (breadcrumb separators).
+pub TUI_style.Style quiet_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style(attrs: TUI_style.DIM);
+    }
+    Palette pal = theme.colours;
+    return TUI_style.Style(foreground: colour(pal.dim), background: colour(mix(pal.page, pal.ink, 12)));
 }
 
 /// Popups sit on a background of their own so the text under them does not
@@ -201,8 +432,27 @@ pub TUI_style.Style popup_style(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
-    if (theme.is_dark) {
-        return TUI_style.Style(foreground: palette(252), background: palette(235));
+    Palette pal = theme.colours;
+    return TUI_style.Style(foreground: colour(pal.ink), background: colour(mix(pal.page, pal.ink, 9)));
+}
+
+/// The sidebar's background: a hair off the page.
+pub TUI_style.Style side_style(Theme theme) {
+    if (theme.is_plain) {
+        return TUI_style.Style();
     }
-    return TUI_style.Style(foreground: palette(236), background: palette(255));
+    Palette pal = theme.colours;
+    return TUI_style.Style(foreground: colour(pal.ink), background: colour(mix(pal.page, pal.ink, 4)));
+}
+
+/// The scrollbar thumb and track.
+pub TUI_style.Style thumb_style(Theme theme, bool is_thumb) {
+    if (theme.is_plain) {
+        return TUI_style.Style();
+    }
+    Palette pal = theme.colours;
+    if (is_thumb) {
+        return TUI_style.Style(foreground: colour(mix(pal.page, pal.dim, 90)), background: colour(pal.page));
+    }
+    return TUI_style.Style(foreground: colour(mix(pal.page, pal.dim, 25)), background: colour(pal.page));
 }

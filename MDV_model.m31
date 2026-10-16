@@ -42,6 +42,62 @@ pub const int HEAD_CELL = 1024;
 pub const int TASK = 2048;
 const int LEVEL_SHIFT = 12;
 const int LEVEL_MASK = 7;
+/// Syntax class of a code token: `(class + 1) * SYN_UNIT` in bits 16..20;
+/// 0 there means "not classified".
+pub const int SYN_UNIT = 65536;
+/// Callout kind (1 note, 2 tip, 3 important, 4 warning, 5 caution): bits 21..23.
+pub const int CALLOUT_UNIT = 2097152;
+/// Chrome or text that sits on a block quote's tinted background.
+pub const int QUOTE = 16777216;
+/// A table row on the alternate (zebra) shade.
+pub const int ZEBRA = 33554432;
+/// The language chip of a code card.
+pub const int CHIP = 67108864;
+/// A nested-list indentation guide.
+pub const int GUIDE = 134217728;
+/// A horizontal rule.
+pub const int RULE = 268435456;
+/// Front matter, drawn as a dim metadata card.
+pub const int META = 536870912;
+/// A footnote reference or a footnote's own text.
+pub const int FOOT = 1073741824;
+/// Heading chrome: the band behind an H1, the bar before an H2, the
+/// under-rule. The level is in the level bits.
+pub const int BANNER = 2147483648;
+/// A list bullet or number.
+pub const int BULLET = 4294967296;
+/// Line numbers in a code card.
+pub const int GUTTER = 8589934592;
+/// A heading's under-rule row.
+pub const int UNDER = 17179869184;
+/// A callout's title row text.
+pub const int TITLE = 34359738368;
+/// A table's border or separator.
+pub const int BORDER = 68719476736;
+/// The selection, in the editor.
+pub const int SELECTED = 137438953472;
+/// The text cursor's cell, in the editor.
+pub const int CARET = 274877906944;
+
+/// The syntax class bits of class number `class_value` (0..11).
+pub int syntax_style(int class_value) {
+    return (class_value + 1) * SYN_UNIT;
+}
+
+/// The syntax class in `style`, -1 when it has none.
+pub int syntax_of(int style) {
+    return ((style / SYN_UNIT) & 31) - 1;
+}
+
+/// The style bits of callout `kind` (1..5).
+pub int callout_style(int kind) {
+    return kind * CALLOUT_UNIT;
+}
+
+/// The callout kind in `style`, 0 for none.
+pub int callout_of(int style) {
+    return (style / CALLOUT_UNIT) & 7;
+}
 
 /// The style bits of a heading's text at `level` (1..6).
 pub int heading_style(int level) {
@@ -101,7 +157,28 @@ pub type HeadingBlock {
 pub type CodeBlock {
     pub str info;
     pub List<str> lines;
+    /// The same lines as spans, coloured by syntax class (one list per line).
+    pub List<List<Span>> shown = [];
     pub int line = 0;
+}
+
+/// A `> [!NOTE]` block: kind 1..5, the title shown, and the body.
+pub type CalloutBlock {
+    pub int kind;
+    pub str title;
+    pub List<Block> kids;
+    pub int line = 0;
+}
+
+/// Front matter: the lines between the `---` fences.
+pub type MetaBlock {
+    pub List<str> lines;
+    pub int line = 0;
+}
+
+/// The footnotes at the end of a document: number and text of each.
+pub type NoteBlock {
+    pub List<Text> notes;
 }
 
 pub type ListItem {
@@ -129,6 +206,9 @@ pub type Grid {
 }
 
 pub enum Block {
+    Callout(CalloutBlock);
+    Meta(MetaBlock);
+    Notes(NoteBlock);
     Rule(int);
     Para(Text);
     Head(HeadingBlock);
@@ -160,6 +240,10 @@ pub type Heading {
 /// One terminal row of the document.
 pub type Row {
     pub List<Span> spans;
+    /// 0 for an ordinary row; N >= 2 on the first of N rows that a scaled
+    /// (OSC 66) heading covers, -1 on the rows after it. The text of the
+    /// heading is in the spans of the first row.
+    pub int big = 0;
     /// The source line of the block this row belongs to (1-based); 0 when
     /// the row is chrome between blocks.
     pub int line = 0;

@@ -1,3 +1,31 @@
+# tui-markdown 0.3.0: a designed page, themes, mouse
+
+Version 0.3.0, from master 2529f22 (v0.2.1). The viewer is redrawn; every
+golden file changed and every key still works. Pins: tui v0.8.0 (57a63af),
+term-markdown v0.4.1 (e384cc7); `syntax` (v0.4.2) comes in through tui.
+`height()` is now rows - 2 (a header row and a status line), and the text
+column is `columns - 3` (a scrollbar column and two margins).
+
+| | old | new |
+|---|---|---|
+| H1..H6 | `# ` marks | band + double rule / bar + rule / markers, no `#` text |
+| quotes | `│ ` | `▎` bar and tint; `> [!NOTE]` callouts |
+| code | padded block | card with language chip and syntax colours |
+| tables | square corners | rounded, heavy header rule, tinted header |
+| links | underline | OSC 8 where available, hover target in the status line |
+| themes | dark, light, plain | + tokyonight, nightfox, gruvbox-material; 24-bit |
+| mouse | none | wheel, links, sidebar, header buttons, scrollbar |
+| CLI | `--cat`, `--width`, `--theme`, `--no-watch` | + `--dump`, `--max-width`, `--scale`, `--links`, `--colors`, `--zebra`, `--numbers`, `--side` |
+
+New modules: `MDV_caps` (terminal capabilities from the environment),
+`MDV_code` (fence language and token spans). API changes a dependent would
+notice: `MDV_layout.layout_with(doc, Options)`, `MDV_model.Block` gains
+`Callout`, `Meta`, `Notes`; `MDV_viewer.Request` gains `OpenUrl`;
+`MDV_app.open(viewer, theme, caps)`; `MDV_loop.Host` gains `after_frame`.
+`docs/design.md` is now `docs/DESIGN.md` (case-insensitive file systems).
+
+---
+
 # tui-markdown 0.2.0: tui 0.5.0 and the import paths
 
 Version 0.2.0, from master c2c6f94 (v0.1.1). **Nothing a user sees changed**:

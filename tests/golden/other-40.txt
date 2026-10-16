@@ -1,13 +1,18 @@
-# Other File
+                                        
+  Other File                            
+                                        
+════════════════════════════════════════
 
 Back to the tour.
 
-## Deep End
+▌ Deep End
+────────────────────────────────────────
 
 Nothing here but a line of text to
 search for: needle.
 
-## Padding
+▌ Padding
+────────────────────────────────────────
 
 • padding 1
 • padding 2

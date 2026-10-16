@@ -5,6 +5,7 @@
 // Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
 
 import MDV_keys;
+import MDV_layout;
 import MDV_model;
 import MDV_prepare;
 import MDV_viewer;
@@ -131,6 +132,9 @@ str first_request(MDV_viewer.Viewer viewer) {
         case Copy(str text): {
             return "copy " + text;
         }
+        case OpenUrl(str url): {
+            return "url " + url;
+        }
     }
 }
 
@@ -138,13 +142,13 @@ Tally tally = Tally();
 str text = long_document();
 // --- geometry ------------------------------------------------------------------
 MDV_viewer.Viewer viewer = fresh(text, 80, 24);
-tally.number("height is rows - 1", viewer.height(), 23);
-tally.number("text width is columns - 2 margins", viewer.layout.width, 78);
+tally.number("height is rows - 2 (a header and a status line)", viewer.height(), 22);
+tally.number("text width is columns - scrollbar - 2 margins", viewer.layout.width, 77);
 tally.number("a wide terminal caps the text width", fresh(text, 200, 24).layout.width, 100);
 tally.number("a narrow terminal keeps a minimum", fresh(text, 5, 24).layout.width, 8);
-tally.number("the text is centred when capped", fresh(text, 200, 24).left(), 50);
+tally.number("the text is centred when capped", fresh(text, 200, 24).left(), 49);
 tally.number("starts at the top", viewer.top, 0);
-tally.check("max_top leaves a full window", viewer.max_top() == viewer.total() - 23);
+tally.check("max_top leaves a full window", viewer.max_top() == viewer.total() - 22);
 // --- scrolling -----------------------------------------------------------------
 typed(viewer, "j");
 tally.number("j scrolls one", viewer.top, 1);
@@ -161,11 +165,11 @@ tally.number("Ctrl-d is half a page", viewer.top, 11);
 viewer.press(["ctrl-u"]);
 tally.number("Ctrl-u is half a page back", viewer.top, 0);
 viewer.press(["ctrl-f"]);
-tally.number("Ctrl-f is a page less one line", viewer.top, 22);
+tally.number("Ctrl-f is a page less one line", viewer.top, 21);
 viewer.press(["ctrl-b"]);
 tally.number("Ctrl-b is a page back", viewer.top, 0);
 viewer.press(["space"]);
-tally.number("Space is a page", viewer.top, 22);
+tally.number("Space is a page", viewer.top, 21);
 viewer.press(["pgup"]);
 tally.number("PgUp is a page back", viewer.top, 0);
 typed(viewer, "2");
@@ -388,7 +392,7 @@ viewer.press(["tab"]);
 typed(viewer, "y");
 tally.same("y with a link focused yanks its target", first_request(viewer), "copy #section-3");
 viewer.press(["esc"]);
-typed(viewer, "2j");
+typed(viewer, "gg5j");
 typed(viewer, "y");
 tally.check("y yanks a paragraph's plain text", first_request(viewer).starts_with("copy Intro line with a link"));
 // --- reload ------------------------------------------------------------------------------------------------
@@ -401,7 +405,7 @@ int line_before = viewer.layout.rows[section_row].line;
 viewer.refresh(text.split("Intro line").join("Intro LINE"));
 tally.same("a reload says so", viewer.message, "reloaded");
 tally.number("a reload with the same lines keeps the window", viewer.top, section_row);
-tally.same("and so the same heading", viewer.layout.rows[viewer.top].plain(), "## Section 3");
+tally.same("and so the same heading", viewer.layout.rows[viewer.top].plain(), "\u{258c} Section 3");
 tally.number("and the same source line", viewer.layout.rows[viewer.top].line, line_before);
 viewer.refresh("# New first line\n\nan added paragraph\n\n" + text);
 tally.check("a reload that adds lines still lands inside the text", viewer.top <= viewer.max_top() && viewer.layout.rows[viewer.top].line <= line_before);
@@ -412,10 +416,10 @@ viewer = fresh(text, 80, 24);
 typed(viewer, "]]]]");
 str heading_before = top_line(viewer);
 viewer.resize(30, 24);
-tally.number("narrower relayouts", viewer.layout.width, 28);
+tally.number("narrower relayouts", viewer.layout.width, 27);
 tally.same("and keeps the place", top_line(viewer), heading_before);
 viewer.resize(80, 10);
-tally.number("a shorter window changes the height", viewer.height(), 9);
+tally.number("a shorter window changes the height", viewer.height(), 8);
 tally.same("same place", top_line(viewer), heading_before);
 viewer.resize(80, 24);
 typed(viewer, "G");
@@ -455,4 +459,74 @@ tally.same("slug: non-ASCII kept", MDV_prepare.slugify("日本語 Café"), "日�
 MDV_viewer.Viewer dupes = fresh("# Same\n\n# Same\n\n# Same\n", 80, 24);
 tally.same("duplicate slugs: second", dupes.layout.headings[1].slug, "same-1");
 tally.same("duplicate slugs: third", dupes.layout.headings[2].slug, "same-2");
+
+// --- the new blocks (0.3) ----------------------------------------------------------------------------------------
+str plain_rows(str source, int width) {
+    List<str> out = [];
+    for (MDV_model.Row row in MDV_layout.layout(MDV_prepare.prepare(source), width).rows) {
+        out.push(row.plain().trim());
+    }
+    return out.join("|");
+}
+
+tally.same("a callout has an icon, a title and its text", plain_rows("> [!NOTE]\n> Body here.\n", 30), "\u{258e} \u{24d8} Note|\u{258e} Body here.");
+tally.same("a callout may carry its own title", plain_rows("> [!WARNING] Mind the gap\n> Body.\n", 30), "\u{258e} \u{25b2} Mind the gap|\u{258e} Body.");
+tally.same("an unknown marker is an ordinary quote", plain_rows("> [!NOPE]\n> Body.\n", 30), "\u{258e} [!NOPE] Body.");
+tally.same("strikethrough loses its markers", plain_rows("a ~~gone~~ b\n", 30), "a gone b");
+tally.same("a lone ~~ stays", plain_rows("a ~~ b\n", 30), "a ~~ b");
+tally.same("a footnote is a superscript and a note below", plain_rows("x[^1]\n\n[^1]: Said.\n", 30), "x\u{b9}||\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}|\u{b9} Said.");
+tally.same("front matter is a card", plain_rows("---\ntitle: T\n---\n\nBody\n", 30), "metadata|title: T|||Body");
+tally.same("task items get box glyphs", plain_rows("- [ ] a\n- [x] b\n", 30), "\u{2610} a|\u{2611} b");
+tally.same("bullets change with depth", plain_rows("- a\n  - b\n    - c\n", 30), "\u{2022} a|\u{2502} \u{25e6} b|\u{2502}   \u{2502} \u{25aa} c");
+tally.same("numbers are right aligned", plain_rows("9. a\n10. b\n", 30), "9. a|10. b");
+MDV_model.Layout banner = MDV_layout.layout(MDV_prepare.prepare("# T\n"), 20);
+tally.number("an H1 is a band, its text and an under-rule", banner.rows.size(), 4);
+MDV_model.Layout scaled = MDV_layout.layout_with(MDV_prepare.prepare("# T\n"), MDV_layout.Options(20, is_scaled: true));
+tally.number("a scaled H1 covers two rows and has a rule", scaled.rows.size(), 3);
+tally.number("the first of them is the big one", scaled.rows[0].big, 2);
+tally.number("the second is covered", scaled.rows[1].big, -1);
+tally.number("the rule is ordinary", scaled.rows[2].big, 0);
+tally.check("the language chip is on a code card", plain_rows("```rust\nfn x() {}\n```\n", 30).contains("rust"));
+tally.check("code is coloured by token", MDV_prepare.prepare("```rust\nfn x() {}\n```\n").blocks.size() == 1);
+// --- the mouse ----------------------------------------------------------------------------------------------------------
+viewer = fresh(text, 80, 24);
+TUI_app.Action ignored_action = viewer.mouse(term.Mouse(term.MouseKind.ScrollDown, 10, 10, 0));
+tally.number("the wheel scrolls three rows", viewer.top, 3);
+ignored_action = viewer.mouse(term.Mouse(term.MouseKind.ScrollUp, 10, 10, 0));
+tally.number("and back", viewer.top, 0);
+tally.number("the sidebar is closed", viewer.side_width(), 0);
+viewer.toggle_side();
+tally.number("toggling opens it, a third of the window at most 32", viewer.side_width(), 26);
+tally.check("the text moves right of it", viewer.left() >= 27);
+tally.number("and narrows", viewer.layout.width, 51);
+viewer.toggle_side();
+tally.number("toggling again closes it", viewer.side_width(), 0);
+viewer.toggle_side();
+viewer.press(["G"]);
+viewer.mouse(term.Mouse(term.MouseKind.Down(0), 5, 2, 0));
+tally.number("a click on the first sidebar row goes to the top", viewer.top, 0);
+tally.number("the sidebar is the top row of headings", viewer.side_top, 0);
+viewer.toggle_side();
+viewer.mouse(term.Mouse(term.MouseKind.Down(0), 80, 12, 0));
+tally.check("a click on the scrollbar moves the window", viewer.top > 0 && viewer.is_dragging);
+viewer.mouse(term.Mouse(term.MouseKind.Up(0), 80, 12, 0));
+tally.check("releasing ends the drag", !viewer.is_dragging);
+typed(viewer, "gg");
+tally.same("the breadcrumb at the top is the title", viewer.crumbs().join(" > "), "Title");
+viewer.press(["G"]);
+tally.check("the breadcrumb names the heading path", viewer.crumbs().size() == 2 && viewer.crumbs()[0] == "Title");
+typed(viewer, "gg");
+int link_row = 0;
+for (int index in 0 .. viewer.layout.rows.size()) {
+    if (viewer.layout.rows[index].plain().contains("Intro line")) {
+        link_row = index;
+    }
+}
+int link_col = viewer.layout.rows[link_row].plain().size();
+tally.number("no link under a margin cell", viewer.link_at(link_row, 0), -1);
+tally.check("a link is found by its cell", viewer.link_at(link_row, viewer.left() + 19) >= 0);
+viewer.mouse(term.Mouse(term.MouseKind.Moved, viewer.left() + 19 + 1, link_row - viewer.top + 2, 0));
+tally.check("hovering sets the hover link", viewer.hover_link >= 0);
+viewer.press(["t"]);
+tally.same("t asks for the next theme", viewer.new_theme, "next");
 print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

@@ -1,9 +1,13 @@
-# The Tour
+                                                                                
+  The Tour                                                                      
+                                                                                
+════════════════════════════════════════════════════════════════════════════════
 
 This is a short document that shows every kind of block tui-markdown draws. It
 has a link to the second chapter, a sibling file, and an external site.
 
-## First Chapter
+▌ First Chapter
+────────────────────────────────────────────────────────────────────────────────
 
 A paragraph long enough to wrap at narrow widths: the quick brown fox jumps over
 the lazy dog, then turns around and does it again, because foxes are like that.
@@ -12,43 +16,47 @@ and a second line after it.
 
 • alpha
 • beta with inline code inside
-  • nested one
-  • nested two
+  │ ◦ nested one
+  │ ◦ nested two
 • gamma
 
 1. first
 2. second
 3. third
 
-  [ ] open task
-  [x] finished task
+☐ open task
+☑ finished task
 
-│ A quote with emphasis and a second line.
+▎ A quote with emphasis and a second line.                                      
 
+────────────────────────────────────── ◆ ───────────────────────────────────────
+
+▌ Second Chapter
 ────────────────────────────────────────────────────────────────────────────────
 
-## Second Chapter
-
+                                                                         python 
   def fib(n):                                                                   
       return n if n < 2 else fib(n - 1) + fib(n - 2)                            
+                                                                                
 
-┌───────┬─────┬─────────────────┐
+╭───────┬─────┬─────────────────╮
 │ Name  │ Qty │      Note       │
-├───────┼─────┼─────────────────┤
+╞═══════╪═════╪═════════════════╡
 │ apple │   3 │       red       │
 │ kiwi  │  12 │ green and fuzzy │
-└───────┴─────┴─────────────────┘
+╰───────┴─────┴─────────────────╯
 
-### Unicode
+◆ Unicode
 
 日本語のテキストは空白がなくても折り返されます。中文也是一样的,没有空格。 Emoji
 🎉 and a combining é (e + U+0301) stay whole.
 
-#### Deep Heading
+◇ Deep Heading
 
-Last paragraph of the tour, with an [image: inline image] in it.
+Last paragraph of the tour, with an [image: inline image] pic.png in it.
 
-## Appendix
+▌ Appendix
+────────────────────────────────────────────────────────────────────────────────
 
 • appendix item 1
 • appendix item 2
@@ -81,6 +89,7 @@ Last paragraph of the tour, with an [image: inline image] in it.
 • appendix item 29
 • appendix item 30
 
-## Last Words
+▌ Last Words
+────────────────────────────────────────────────────────────────────────────────
 
 The final paragraph, so that headings can reach the top of the window.

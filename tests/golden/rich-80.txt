@@ -1,0 +1,69 @@
+                                                                       metadata 
+  title: Demo                                                                   
+  tags: [a, b]                                                                  
+                                                                                
+
+                                                                                
+  Big Title Of The Document                                                     
+                                                                                
+════════════════════════════════════════════════════════════════════════════════
+
+Intro with footnote¹, struck text and a link.
+
+▎ ⓘ Note                                                                        
+▎ Useful information that users should know.                                    
+
+▎ ▲ Careful now                                                                 
+▎ Dangerous things ahead, and a second line.                                    
+▎                                                                               
+▎ • item in callout                                                             
+
+▎ plain quote                                                                   
+▎                                                                               
+▎ ▎ nested quote                                                                
+
+1. one
+2. two
+   │ ◦ nested bold
+   │   │ ▪ deeper
+3. ten
+
+☑ done
+☐ todo with a long line that should wrap around the width of the column nicely
+
+                                                                           rust 
+  fn main() {                                                                   
+      println!("hi"); // comment                                                
+  }                                                                             
+                                                                                
+
+╭───┬───╮
+│ a │ b │
+╞═══╪═══╡
+│ 1 │ 2 │
+│ 3 │ 4 │
+╰───┴───╯
+
+· Six
+
+▎ ✦ Tip                                                                         
+▎ Press t to change the theme.                                                  
+
+▎ ❖ Important                                                                   
+▎ Mouse works everywhere.                                                       
+
+▎ ✖ Caution                                                                     
+▎ This one is red.                                                              
+
+▌ Links and images
+────────────────────────────────────────────────────────────────────────────────
+
+An external link, a relative one, an anchor, and an image [image: logo]
+img/logo.png.
+
+────────────────────────────────────── ◆ ───────────────────────────────────────
+
+Done.
+
+────────
+¹ The footnote text.

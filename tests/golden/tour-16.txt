@@ -1,4 +1,7 @@
-# The Tour
+                
+  The Tour      
+                
+════════════════
 
 This is a short
 document that
@@ -12,7 +15,8 @@ a sibling file,
 and an external
 site.
 
-## First Chapter
+▌ First Chapter
+────────────────
 
 A paragraph long
 enough to wrap
@@ -33,37 +37,39 @@ line after it.
 • beta with
   inline code
   inside
-  • nested one
-  • nested two
+  │ ◦ nested one
+  │ ◦ nested two
 • gamma
 
 1. first
 2. second
 3. third
 
-  [ ] open task
-  [x] finished
-  task
+☐ open task
+☑ finished task
 
-│ A quote with
-│ emphasis and a
-│ second line.
+▎ A quote with  
+▎ emphasis and a
+▎ second line.  
 
+────── ◆ ───────
+
+▌ Second Chapter
 ────────────────
 
-## Second
-   Chapter
-
+         python 
   def fib(n):   
-      return n i
-  f n < 2 else f
-  ib(n - 1) + fi
-  b(n - 2)      
+      return n  
+   if n < 2 el  
+  se fib(n - 1  
+  ) + fib(n -   
+  2)            
+                
 
-┌────┬────┬────┐
+╭────┬────┬────╮
 │ Na │ Qt │ No │
 │ me │  y │ te │
-├────┼────┼────┤
+╞════╪════╪════╡
 │ ap │  3 │ re │
 │ pl │    │ d  │
 │ e  │    │    │
@@ -75,9 +81,9 @@ line after it.
 │    │    │ fu │
 │    │    │ zz │
 │    │    │ y  │
-└────┴────┴────┘
+╰────┴────┴────╯
 
-### Unicode
+◆ Unicode
 
 日本語のテキスト
 は空白がなくても
@@ -89,16 +95,16 @@ combining é (e +
 U+0301) stay
 whole.
 
-#### Deep
-     Heading
+◇ Deep Heading
 
 Last paragraph
 of the tour,
 with an [image:
-inline image] in
-it.
+inline image]
+pic.png in it.
 
-## Appendix
+▌ Appendix
+────────────────
 
 • appendix item
   1
@@ -161,7 +167,8 @@ it.
 • appendix item
   30
 
-## Last Words
+▌ Last Words
+────────────────
 
 The final
 paragraph, so

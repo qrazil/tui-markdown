@@ -139,7 +139,9 @@ tour-80 tour.md 80
 other-40 other.md 40
 unicode-12 unicode.md 12
 unicode-20 unicode.md 20
-unicode-40 unicode.md 40"
+unicode-40 unicode.md 40
+rich-30 rich.md 30
+rich-80 rich.md 80"
 
 mkdir -p tests/golden
 golden_count=0
@@ -170,6 +172,37 @@ elif ! cmp -s "$got" tests/golden/tour-dark-40.txt; then
 fi
 if [ $golden_bad -eq 0 ]; then
     note "layout goldens: $golden_count files match${BLESS:+ (rewritten)}"
+fi
+
+# The themed pages: `--dump` (what the screen shows, theme background and
+# margins included) per theme, at 80 columns. These are also the files in
+# docs/screenshots, so the screenshots can never go stale.
+mkdir -p docs/screenshots
+shot_count=0
+shot_bad=0
+for theme in dark light tokyonight nightfox gruvbox-material plain; do
+    got="$WORK/shot-$theme.ansi"
+    (cd tests/fixtures && "$BIN" --dump --theme "$theme" --width 80 --colors 24bit rich.md) >"$got" 2>/dev/null
+    shot_count=$((shot_count + 1))
+    if [ -n "${BLESS:-}" ]; then
+        cp "$got" "docs/screenshots/$theme-80.ansi"
+    elif ! cmp -s "$got" "docs/screenshots/$theme-80.ansi"; then
+        shot_bad=$((shot_bad + 1))
+        bad "screenshot $theme" "$(diff "docs/screenshots/$theme-80.ansi" "$got" | head -4 | cat -v | cut -c1-150)"
+    fi
+done
+# One page with every option on: scaled headings, links, zebra rows, numbers.
+got="$WORK/shot-everything.ansi"
+(cd tests/fixtures && "$BIN" --dump --theme tokyonight --width 60 --colors 256 --scale on --links on --zebra --numbers rich.md) >"$got" 2>/dev/null
+shot_count=$((shot_count + 1))
+if [ -n "${BLESS:-}" ]; then
+    cp "$got" docs/screenshots/everything-60.ansi
+elif ! cmp -s "$got" docs/screenshots/everything-60.ansi; then
+    shot_bad=$((shot_bad + 1))
+    bad "screenshot everything" "$(diff docs/screenshots/everything-60.ansi "$got" | head -4 | cat -v | cut -c1-150)"
+fi
+if [ $shot_bad -eq 0 ]; then
+    note "screenshots: $shot_count dumps match${BLESS:+ (rewritten)}"
 fi
 
 # Every line of every plain golden fits its width, wide characters counted as
@@ -230,15 +263,25 @@ check "--theme plain removes every escape sequence" 0 "$plain"
 empty=$(NO_COLOR= TERM=xterm-256color "$BIN" --cat --theme dark --width 40 tour.md | grep -c "$esc")
 check "an empty NO_COLOR is not NO_COLOR" yes "$([ "$empty" -gt 0 ] && echo yes || echo no)"
 
-piped=$(printf '# Piped\n\nbody text\n' | NO_COLOR=1 "$BIN" --width 30 | head -n 1)
-check "standard input to a pipe prints the rendering" "# Piped" "$piped"
-explicit=$(printf '# Dash\n' | NO_COLOR=1 "$BIN" --cat --width 30 - | head -n 1)
-check "'-' reads standard input" "# Dash" "$explicit"
-both=$(NO_COLOR=1 "$BIN" --cat --width 30 other.md other.md | grep -c '^# Other File')
+piped=$(printf '# Piped\n\nbody text\n' | NO_COLOR=1 "$BIN" --width 30 | sed -n 2p | sed 's/ *$//')
+check "standard input to a pipe prints the rendering" "  Piped" "$piped"
+explicit=$(printf '# Dash\n' | NO_COLOR=1 "$BIN" --cat --width 30 - | sed -n 2p | sed 's/ *$//')
+check "'-' reads standard input" "  Dash" "$explicit"
+both=$(NO_COLOR=1 "$BIN" --cat --width 30 other.md other.md | grep -c 'Other File')
 check "several files are all printed" 2 "$both"
-piped_file=$(NO_COLOR=1 "$BIN" --width 30 other.md | head -n 1)
-check "a file to a pipe prints the rendering (no terminal needed)" "# Other File" "$piped_file"
+piped_file=$(NO_COLOR=1 "$BIN" --width 30 other.md | sed -n 2p | sed 's/ *$//')
+check "a file to a pipe prints the rendering (no terminal needed)" "  Other File" "$piped_file"
 
+links=$(env -u NO_COLOR TERM=xterm-256color "$BIN" --cat --links on --width 60 rich.md | grep -c "${esc}]8;id=l")
+check "--links on wraps links in OSC 8" yes "$([ "$links" -gt 0 ] && echo yes || echo no)"
+links=$(env -u NO_COLOR TERM=xterm-256color "$BIN" --cat --width 60 rich.md | grep -c "${esc}]8;")
+check "--cat has no OSC 8 unless asked" 0 "$links"
+scaled=$(env -u NO_COLOR TERM=xterm-256color "$BIN" --cat --scale on --width 60 rich.md | grep -c "${esc}]66;s=2;")
+check "--scale on writes the H1 as OSC 66" 1 "$scaled"
+dumped=$(NO_COLOR=1 "$BIN" --dump --width 50 rich.md | grep -c "$esc")
+check "--dump with NO_COLOR has no escapes" 0 "$dumped"
+dumped=$(env -u NO_COLOR "$BIN" --dump --theme tokyonight --width 50 rich.md | grep -c "48;2;26;27;38")
+check "--dump paints the theme's background" yes "$([ "$dumped" -gt 10 ] && echo yes || echo no)"
 "$BIN" --cat nope.md >/dev/null 2>"$WORK/err.txt"
 check "a missing file exits 1" 1 "$?"
 check "and names the file" yes "$(grep -q 'nope.md' "$WORK/err.txt" && echo yes || echo no)"

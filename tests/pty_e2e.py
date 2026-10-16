@@ -50,6 +50,9 @@ class Screen:
     def __init__(self, rows=24, cols=80):
         self.resize(rows, cols)
         self.clipboard = []
+        self.cur_link = None
+        self.linkmap = {}
+        self.scaled = []
         self.leave_seen = False
         self.pending = b""
 
@@ -71,6 +74,8 @@ class Screen:
         width = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
         if 0 <= self.row < self.rows and 0 <= self.col < self.cols:
             self.cells[self.row][self.col] = ch
+            if self.cur_link:
+                self.linkmap[(self.row, self.col)] = self.cur_link
             if width == 2 and self.col + 1 < self.cols:
                 self.cells[self.row][self.col + 1] = ""
         self.col += width
@@ -117,6 +122,14 @@ class Screen:
             i += 1
 
     def osc(self, body):
+        if body.startswith("8;"):
+            uri = body.split(";", 2)[2] if body.count(";") >= 2 else ""
+            self.cur_link = uri or None
+            return
+        if body.startswith("66;"):
+            params, _, text = body[3:].partition(";")
+            self.scaled.append((self.row, self.col, params, text))
+            return
         if body.startswith("52;c;"):
             try:
                 self.clipboard.append(base64.b64decode(body[5:]).decode("utf-8"))
@@ -231,6 +244,17 @@ class Session:
         os.write(self.master, out.encode())
         self.drain(0.25)
 
+    def mouse(self, kind, col, row, mods=0):
+        """An SGR (1006) report: kind is down, up, drag, move, wheel-up or wheel-down; col and row are 1-based."""
+        code = {"down": 0, "up": 0, "drag": 32, "move": 35, "wheel-up": 64, "wheel-down": 65}[kind] + mods
+        final = "m" if kind == "up" else "M"
+        os.write(self.master, ("\x1b[<%d;%d;%d%s" % (code, col, row, final)).encode())
+        self.drain(0.25)
+
+    def click(self, col, row):
+        self.mouse("down", col, row)
+        self.mouse("up", col, row)
+
     def wait_for(self, needle, timeout=3.0):
         end = time.time() + timeout
         while time.time() < end:
@@ -249,8 +273,12 @@ class Session:
     def status(self):
         return self.screen.lines()[self.screen.rows - 1]
 
-    def top(self):
+    def head(self):
         return self.screen.lines()[0]
+
+    def top(self):
+        """The first row of the document on screen (row 0 is the header)."""
+        return self.screen.lines()[1]
 
     def finish(self, timeout=3.0):
         end = time.time() + timeout
@@ -284,41 +312,42 @@ def main():
 
     # --- start up, scroll, jump ---------------------------------------------
     s = Session(binary, [tour])
-    check("startup: title is on the first row", "# The Tour" in s.text(), s.text())
+    check("startup: the title is in the banner", "The Tour" in s.screen.lines()[2], s.text())
+    check("startup: the header has the outline button and theme", "☰" in s.head() and "dark" in s.head(), s.head())
     check("startup: status names the file", "tour.md" in s.status() and "0%" in s.status(), s.status())
     s.send("j")
-    check("j scrolls one line", "# The Tour" not in s.text() and s.top() == "", s.text())
+    check("j scrolls one line", "The Tour" in s.top(), s.text())
     s.send("k")
-    check("k scrolls back", "# The Tour" in s.top())
+    check("k scrolls back", "The Tour" in s.screen.lines()[2])
     s.send("3j")
-    check("3j scrolls three", "has a link" in s.top(), s.top())
+    check("3j scrolls three", "\u2550" in s.top(), s.top())
     s.send("gg")
-    check("gg goes to the top", "# The Tour" in s.top())
+    check("gg goes to the top", "The Tour" in s.screen.lines()[2])
     s.send("G")
     check("G goes to the bottom", "final paragraph" in s.text() and "100%" in s.status(), s.status())
     s.send("gg")
     s.send("{ctrl-d}")
-    check("Ctrl-d moves half a page", "# The Tour" not in s.text(), s.top())
+    check("Ctrl-d moves half a page", "The Tour" not in s.screen.lines()[2], s.top())
     s.send("{ctrl-u}")
-    check("Ctrl-u moves back", "# The Tour" in s.top())
+    check("Ctrl-u moves back", "The Tour" in s.screen.lines()[2])
     s.send("{ctrl-f}")
     pos_f = s.top()
     s.send("{ctrl-b}")
-    check("Ctrl-f / Ctrl-b page", pos_f != s.top() and "# The Tour" in s.top(), pos_f)
+    check("Ctrl-f / Ctrl-b page", pos_f != s.top() and "The Tour" in s.screen.lines()[2], pos_f)
     s.send("{pgdn}")
-    check("PgDn pages", "# The Tour" not in s.text())
+    check("PgDn pages", "The Tour" not in s.screen.lines()[2])
     s.send("{home}")
-    s.send("5G")
-    check("5G goes to row 5", s.top() == "" and s.screen.lines()[1].startswith(" ## First Chapter"), s.text())
+    s.send("9G")
+    check("9G goes to row 9", s.top().startswith(" ▌ First Chapter"), s.text())
     s.send("gg")
     s.send("]]")
-    check("]] jumps to the next heading", s.top().startswith(" ## First Chapter"), s.top())
+    check("]] jumps to the next heading", s.top().startswith(" ▌ First Chapter"), s.top())
     s.send("]]")
-    check("]] again", s.top().startswith(" ## Second Chapter"), s.top())
+    check("]] again", s.top().startswith(" ▌ Second Chapter"), s.top())
     s.send("[[")
-    check("[[ goes back a heading", s.top().startswith(" ## First Chapter"), s.top())
+    check("[[ goes back a heading", s.top().startswith(" ▌ First Chapter"), s.top())
     s.send("gg2]]")
-    check("2]] skips one heading", s.top().startswith(" ## Second Chapter"), s.top())
+    check("2]] skips one heading", s.top().startswith(" ▌ Second Chapter"), s.top())
     s.send("q")
     code = s.finish()
     check("q quits with status 0", code == 0, str(code))
@@ -358,7 +387,7 @@ def main():
     check("o opens the outline", "Outline" in t and "The Tour" in t and "Second Chapter" in t and "Deep Heading" in t, t)
     s.send("jj")
     s.send("{enter}")
-    check("Enter in the outline jumps", s.top().startswith(" ## Second Chapter") or "Second Chapter" in s.top(), s.top())
+    check("Enter in the outline jumps", s.top().startswith(" ▌ Second Chapter") or "Second Chapter" in s.top(), s.top())
     check("the outline closes", "Outline" not in s.text())
     s.send("o")
     s.send("{esc}")
@@ -371,9 +400,9 @@ def main():
     s.send("{tab}")
     check("Tab focuses the first link", "#second-chapter" in s.status(), s.status())
     s.send("{enter}")
-    check("Enter follows an anchor link", s.top().startswith(" ## Second Chapter"), s.top())
+    check("Enter follows an anchor link", s.top().startswith(" ▌ Second Chapter"), s.top())
     s.send("{ctrl-o}")
-    check("Ctrl-o goes back", "# The Tour" in s.top(), s.top())
+    check("Ctrl-o goes back", "The Tour" in s.screen.lines()[2], s.text())
     s.send("{tab}")
     check("Tab again reaches the sibling file link", "other.md#deep-end" in s.status(), s.status())
     s.send("{enter}")
@@ -469,10 +498,10 @@ def main():
     # --- standard input ------------------------------------------------------------------
     data = open(tour).read()
     s = Session(binary, [], stdin_data=data)
-    check("stdin: the document is shown", "# The Tour" in s.text(), s.text())
+    check("stdin: the document is shown", "The Tour" in s.text(), s.text())
     check("stdin: status says <stdin>", "<stdin>" in s.status(), s.status())
     s.send("]]")
-    check("stdin: keys work from the terminal", s.top().startswith(" ## First Chapter"), s.top())
+    check("stdin: keys work from the terminal", s.top().startswith(" ▌ First Chapter"), s.top())
     s.send("r")
     check("stdin: reload is refused", "cannot be reloaded" in s.status(), s.status())
     s.send("q")
@@ -481,7 +510,7 @@ def main():
     # --- themes ------------------------------------------------------------------------------
     for theme in ("light", "plain"):
         s = Session(binary, ["--theme", theme, tour])
-        check("theme %s runs" % theme, "# The Tour" in s.text())
+        check("theme %s runs" % theme, "The Tour" in s.text())
         s.send("q")
         s.finish()
 
@@ -497,6 +526,61 @@ def main():
     s.send("0")
     s.send("{ctrl-c}")
     check("Ctrl-c quits", s.finish() == 0)
+
+    # --- the mouse, the sidebar, the header ---------------------------------------------
+    s = Session(binary, [tour])
+    before = s.top()
+    s.mouse("wheel-down", 20, 10)
+    check("mouse: the wheel scrolls three rows", s.top() != before and "\u2550" in s.top(), s.top())
+    s.mouse("wheel-up", 20, 10)
+    check("mouse: the wheel scrolls back", "The Tour" in s.screen.lines()[2])
+    s.send("b")
+    check("b opens the outline sidebar", "Second Chapter" in s.text() and "Deep Heading" in s.text() and "\u2502" in s.screen.lines()[3], s.text())
+    s.click(5, 4)
+    check("mouse: a click in the sidebar jumps to the heading", "Second Chapter" in s.top(), s.top())
+    s.send("b")
+    check("b closes the sidebar", "\u25b8 " not in s.text())
+    s.click(2, 1)
+    check("mouse: the outline button in the header opens it", "\u25b8 " in s.text(), s.text())
+    s.click(2, 1)
+    check("mouse: and closes it", "\u25b8 " not in s.text())
+    dark = s.head()
+    s.click(78, 1)
+    check("mouse: the theme button changes the theme", "dark" in dark and "light" in s.head(), s.head())
+    s.send("t")
+    check("t changes the theme too", "tokyonight" in s.head(), s.head())
+    s.send("gg")
+    # a click on the in-document link follows it
+    row = None
+    for i, line in enumerate(s.screen.lines()):
+        if "link to the second chapter" in line:
+            row = i
+            col = line.index("link to the second chapter")
+    check("the link is on screen", row is not None, s.text())
+    s.mouse("move", col + 3, row + 1)
+    check("mouse: hovering a link shows its target in the status line", "#second-chapter" in s.status(), s.status())
+    s.click(col + 3, row + 1)
+    check("mouse: clicking a link follows it", s.top().startswith(" \u258c Second Chapter"), s.top())
+    s.send("{ctrl-o}")
+    s.mouse("down", 80, 5)
+    s.mouse("drag", 80, 15)
+    s.mouse("up", 80, 15)
+    check("mouse: dragging the scrollbar scrolls", "The Tour" not in s.screen.lines()[2] and "%" in s.status(), s.status())
+    s.send("q")
+    s.finish()
+
+    # --- links (OSC 8) and scaled headings (OSC 66) -------------------------------------
+    s = Session(binary, ["--links", "on", "--scale", "on", tour])
+    urls = set(s.screen.linkmap.values())
+    check("OSC 8: the external link is marked", "https://example.com/docs?a=1&b=2" in urls, str(urls))
+    check("OSC 8: a relative link is not", not any("other.md" in u or u.startswith("#") for u in urls), str(urls))
+    check("OSC 66: the H1 is written as scaled text", any(t == "The Tour" and "s=2" in params for (_, _, params, t) in s.screen.scaled), str(s.screen.scaled))
+    s.send("q")
+    s.finish()
+    s = Session(binary, [tour], env={"TERM_PROGRAM": "Apple_Terminal"})
+    check("no OSC 8 or OSC 66 on Terminal.app", not s.screen.linkmap and not s.screen.scaled)
+    s.send("q")
+    s.finish()
 
     # --- a missing file -------------------------------------------------------------------------
     s = Session(binary, ["nope.md"])

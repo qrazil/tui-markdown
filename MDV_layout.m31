@@ -1,19 +1,35 @@
-// Layout: the model at one width, as rows of styled spans.
+// Layout: the model slot one width, as rows of styled spans.
 //
-// Pure: the same document and width always give the same rows, and nothing
-// here knows about colours (see `MDV_theme`) or the terminal. A row's spans
-// say what each run IS through style bits; `DECO` marks everything that is
-// chrome (bullets, quote bars, table borders, a rule, padding) so that what
-// is left over is exactly the document's text, which the oracle test checks
-// against term-markdown's own HTML.
+// Pure: the same document, options and width always give the same rows, and
+// nothing here knows about colours (see `MDV_theme`) or the terminal. A row's
+// spans say what each run IS through style bits; `DECO` marks everything that
+// is chrome (bullets, quote bars, table borders, a rule, padding, a callout's
+// title) so that what is left over is exactly the document's text, which the
+// oracle test checks against term-markdown's own HTML.
+//
+// Backgrounds (a block quote's tint, a code card, an H1 band) are made by
+// padding every row of the block out to the full width with spaces that carry
+// the block's bit, so the colour is a property of the spans, never of the
+// renderer, and `--dump` and the screen agree.
 
 import MDV_model;
 import MDV_wrap;
 import tui.core.TUI_text;
 
-const str BAR = "\u{2502} ";
-const str BULLET = "\u{2022} ";
+const str BAR = "\u{258e} ";
 const str DASH = "\u{2500}";
+const str DOUBLE = "\u{2550}";
+
+/// What a layout may vary on besides the width.
+pub type Options {
+    pub int width;
+    /// H1 is written as OSC 66 scaled text (two rows, two columns a letter).
+    pub bool is_scaled = false;
+    /// Alternate table rows get a shade.
+    pub bool is_zebra = false;
+    /// Line numbers in code cards.
+    pub bool has_numbers = false;
+}
 
 /// Rows and the headings found among them, rows counted from this part's own
 /// first row.
@@ -36,16 +52,14 @@ void Part.blank() {
     rows.push(blank_row());
 }
 
-/// Does the part end in a row that is not blank?
-bool Part.has_content() {
-    return rows.size() > 0;
-}
-
 /// What the whole layout shares while it runs.
 type Context {
     List<MDV_model.Link> links;
     /// The yankable text of each leaf block.
     List<str> texts;
+    Options options;
+    /// How deep in lists the block being laid out is.
+    int depth = 0;
 }
 
 str spaces(int count) {
@@ -63,8 +77,42 @@ MDV_model.Row blank_row() {
     return MDV_model.Row([]);
 }
 
+/// `spans` with `bits` added to every one.
+List<MDV_model.Span> with_bits(List<MDV_model.Span> spans, int bits) {
+    List<MDV_model.Span> out = [];
+    for (MDV_model.Span span in spans) {
+        out.push(MDV_model.Span(span.text, style: span.style | bits, link: span.link));
+    }
+    return out;
+}
+
+/// `spans` padded with spaces carrying `bits` to `width` columns.
+List<MDV_model.Span> filled(List<MDV_model.Span> spans, int width, int bits) {
+    int pad = width - MDV_wrap.spans_width(spans);
+    if (pad <= 0) {
+        return spans;
+    }
+    List<MDV_model.Span> out = [];
+    for (MDV_model.Span span in spans) {
+        out.push(span);
+    }
+    out.push(chrome(spaces(pad), bits));
+    return out;
+}
+
+/// Every row of `part` with `bits` on all its spans and padded to `width`;
+/// blank rows become a row of the fill alone.
+Part tinted(Part part, int width, int bits) {
+    Part out = Part([], part.heads);
+    for (MDV_model.Row row in part.rows) {
+        List<MDV_model.Span> spans = filled(with_bits(row.spans, bits), width, bits);
+        out.rows.push(MDV_model.Row(spans, line: row.line, block: row.block, big: row.big));
+    }
+    return out;
+}
+
 /// `part` with a prefix on every row: `first` on the first, `rest` on the
-/// others. Blank rows get `blank` (or nothing).
+/// others. Blank rows get `rest` only when `is_blank_marked`.
 Part indent(Part part, MDV_model.Span first, MDV_model.Span rest, bool is_blank_marked) {
     Part out = Part([], part.heads);
     for (int index in 0 .. part.rows.size()) {
@@ -81,7 +129,7 @@ Part indent(Part part, MDV_model.Span first, MDV_model.Span rest, bool is_blank_
         for (MDV_model.Span span in row.spans) {
             spans.push(span);
         }
-        out.rows.push(MDV_model.Row(spans, line: row.line, block: row.block));
+        out.rows.push(MDV_model.Row(spans, line: row.line, block: row.block, big: row.big));
     }
     return out;
 }
@@ -113,27 +161,109 @@ Part paragraph(Context context, MDV_model.Text text, int width) {
     return leaf(context, MDV_wrap.wrap(text.spans, width), text.line, plain_of(text.spans));
 }
 
+// --- headings -----------------------------------------------------------------
+
+str head_marker(int level) {
+    if (level == 3) {
+        return "\u{25c6} ";
+    }
+    if (level == 4) {
+        return "\u{25c7} ";
+    }
+    if (level == 5) {
+        return "\u{25b8} ";
+    }
+    return "\u{b7} ";
+}
+
 Part heading(Context context, MDV_model.HeadingBlock block, int width) {
-    str marks = "#".repeat(block.level) + " ";
-    int lead = TUI_text.width(marks);
-    List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(block.spans, width - lead);
+    int level = block.level;
+    int tag = MDV_model.BANNER | MDV_model.heading_style(level);
     List<List<MDV_model.Span>> lines = [];
-    for (int index in 0 .. wrapped.size()) {
-        List<MDV_model.Span> spans = [];
-        if (index == 0) {
-            spans.push(chrome(marks, MDV_model.heading_style(block.level)));
+    int big = 0;
+    if (level == 1) {
+        int inner = width - 4;
+        if (context.options.is_scaled) {
+            // Two columns a letter: half the room.
+            inner = (width - 2) / 2;
+        }
+        List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(with_bits(block.spans, 0), inner);
+        if (context.options.is_scaled) {
+            big = 2;
+            for (List<MDV_model.Span> one in wrapped) {
+                List<MDV_model.Span> first = [chrome("  ", tag)];
+                for (MDV_model.Span span in one) {
+                    first.push(span);
+                }
+                lines.push(first);
+                lines.push([chrome("  ", tag)]);
+            }
         } else {
-            spans.push(chrome(spaces(lead), 0));
+            lines.push([chrome(spaces(width), tag)]);
+            for (List<MDV_model.Span> one in wrapped) {
+                List<MDV_model.Span> row = [chrome("  ", tag)];
+                for (MDV_model.Span span in with_bits(one, MDV_model.BANNER)) {
+                    row.push(span);
+                }
+                lines.push(filled(row, width, tag));
+            }
+            lines.push([chrome(spaces(width), tag)]);
         }
-        for (MDV_model.Span span in wrapped[index]) {
-            spans.push(span);
+        lines.push([chrome(DOUBLE.repeat(width), tag | MDV_model.UNDER)]);
+    } else if (level == 2) {
+        List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(block.spans, width - 2);
+        for (int index in 0 .. wrapped.size()) {
+            List<MDV_model.Span> row = [];
+            if (index == 0) {
+                row.push(chrome("\u{258c} ", tag));
+            } else {
+                row.push(chrome("\u{258c} ", tag));
+            }
+            for (MDV_model.Span span in wrapped[index]) {
+                row.push(span);
+            }
+            lines.push(row);
         }
-        lines.push(spans);
+        lines.push([chrome(DASH.repeat(width), tag | MDV_model.UNDER)]);
+    } else {
+        str marks = head_marker(level);
+        List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(block.spans, width - 2);
+        for (int index in 0 .. wrapped.size()) {
+            List<MDV_model.Span> row = [];
+            if (index == 0) {
+                row.push(chrome(marks, tag));
+            } else {
+                row.push(chrome("  ", tag));
+            }
+            for (MDV_model.Span span in wrapped[index]) {
+                row.push(span);
+            }
+            lines.push(row);
+        }
     }
     Part part = leaf(context, lines, block.line, block.plain);
-    part.heads.push(MDV_model.Heading(block.level, block.plain, block.slug, 0, block.line));
+    if (big > 0) {
+        // Pairs of rows: the first of each pair holds the scaled text, the
+        // second is covered by it; the under-rule slot the end is ordinary.
+        List<MDV_model.Row> marked = [];
+        for (int index in 0 .. part.rows.size()) {
+            MDV_model.Row row = part.rows[index];
+            int mark = 0;
+            if (index + 1 < part.rows.size()) {
+                mark = -1;
+                if (index % 2 == 0) {
+                    mark = 2;
+                }
+            }
+            marked.push(MDV_model.Row(row.spans, line: row.line, block: row.block, big: mark));
+        }
+        part = Part(marked, []);
+    }
+    part.heads.push(MDV_model.Heading(level, block.plain, block.slug, 0, block.line));
     return part;
 }
+
+// --- code -------------------------------------------------------------------------
 
 /// Tabs to four-column stops; the rest of a code line is left alone.
 str expand_tabs(str code_line) {
@@ -152,74 +282,327 @@ str expand_tabs(str code_line) {
     return out.join("");
 }
 
-Part code(Context context, MDV_model.CodeBlock block, int width) {
-    int inner = width - 2;
-    if (inner < 1) {
-        inner = 1;
-    }
+/// `spans` cut into lines of slot most `room` columns, every space kept.
+List<List<MDV_model.Span>> cut_spans(List<MDV_model.Span> spans, int room) {
     List<List<MDV_model.Span>> lines = [];
-    List<str> plain = [];
-    int fill_style = MDV_model.BLOCK | MDV_model.DECO;
-    for (str source_line in block.lines) {
-        plain.push(source_line);
-        MDV_model.Span whole = MDV_model.Span(expand_tabs(source_line), style: MDV_model.BLOCK);
-        // `wrap` would drop spaces; code keeps every one, so cut by columns.
-        str rest = whole.text;
-        bool is_first = true;
-        while (is_first || rest.size() > 0) {
-            is_first = false;
-            str piece = TUI_text.cut(rest, inner);
-            if (piece.size() == 0 && rest.size() > 0) {
-                // A cluster wider than the line: take it whole.
+    List<MDV_model.Span> line = [];
+    int used = 0;
+    for (MDV_model.Span span in spans) {
+        str rest = span.text;
+        while (rest.size() > 0) {
+            int free = room - used;
+            str piece = "";
+            if (free > 0) {
+                piece = TUI_text.cut(rest, free);
+            }
+            if (piece.size() == 0) {
+                if (used > 0) {
+                    lines.push(line);
+                    line = [];
+                    used = 0;
+                    continue;
+                }
+                // A cluster wider than the room: take it whole.
                 piece = TUI_text.cut(rest, 2);
                 if (piece.size() == 0) {
                     piece = rest;
                 }
             }
+            line.push(MDV_model.Span(piece, style: span.style, link: span.link));
+            used = used + TUI_text.width(piece);
             rest = rest.substr(piece.size(), rest.size());
-            int pad = inner - TUI_text.width(piece);
-            List<MDV_model.Span> spans = [MDV_model.Span("  ", style: fill_style)];
-            if (piece.size() > 0) {
-                spans.push(MDV_model.Span(piece, style: MDV_model.BLOCK));
-            }
-            if (pad > 0) {
-                spans.push(MDV_model.Span(spaces(pad), style: fill_style));
-            }
-            lines.push(spans);
         }
     }
-    if (lines.size() == 0) {
-        lines.push([MDV_model.Span(spaces(width), style: fill_style)]);
+    lines.push(line);
+    return lines;
+}
+
+Part code(Context context, MDV_model.CodeBlock block, int width) {
+    int digits = str(block.lines.size()).size();
+    int gutter = 0;
+    if (context.options.has_numbers) {
+        gutter = digits + 1;
     }
+    int inner = width - 4 - gutter;
+    if (inner < 1) {
+        inner = 1;
+    }
+    int fill = MDV_model.BLOCK | MDV_model.DECO;
+    List<List<MDV_model.Span>> lines = [];
+    List<str> plain = [];
+    str language = codelang(block.info);
+    // The top row carries the language chip slot the right.
+    List<MDV_model.Span> top = [];
+    if (language.size() > 0 && width > language.size() + 4) {
+        top.push(chrome(spaces(width - language.size() - 2), fill));
+        top.push(chrome(" " + language + " ", fill | MDV_model.CHIP));
+    } else {
+        top.push(chrome(spaces(width), fill));
+    }
+    lines.push(top);
+    for (int index in 0 .. block.lines.size()) {
+        plain.push(block.lines[index]);
+        List<MDV_model.Span> shown = [];
+        if (index < block.shown.size()) {
+            for (MDV_model.Span each in block.shown[index]) {
+                shown.push(MDV_model.Span(expand_tabs(each.text), style: each.style));
+            }
+        } else {
+            shown.push(MDV_model.Span(expand_tabs(block.lines[index]), style: MDV_model.BLOCK));
+        }
+        bool is_first = true;
+        for (List<MDV_model.Span> piece in cut_spans(shown, inner)) {
+            List<MDV_model.Span> spans = [chrome("  ", fill)];
+            if (gutter > 0) {
+                str number = "";
+                if (is_first) {
+                    number = str(index + 1);
+                }
+                spans.push(chrome(spaces(digits - number.size()) + number + " ", fill | MDV_model.GUTTER));
+            }
+            is_first = false;
+            for (MDV_model.Span span in piece) {
+                spans.push(span);
+            }
+            lines.push(filled(spans, width, fill));
+        }
+    }
+    lines.push([chrome(spaces(width), fill)]);
     return leaf(context, lines, block.line, plain.join("\n"));
 }
 
+/// The label of a fence: its first word.
+str codelang(str info) {
+    str word = info.trim();
+    for (int index in 0 .. word.size()) {
+        int byte_value = word.byte_at(index);
+        if (byte_value == ' ' || byte_value == ',' || byte_value == '{' || byte_value == '}') {
+            return word.substr(0, index);
+        }
+    }
+    return word;
+}
+
+Part meta(Context context, MDV_model.MetaBlock block, int width) {
+    int fill = MDV_model.META | MDV_model.DECO;
+    List<List<MDV_model.Span>> lines = [];
+    List<MDV_model.Span> top = [chrome(spaces(width - 10), fill), chrome(" metadata ", fill | MDV_model.CHIP)];
+    if (width <= 12) {
+        top = [chrome(spaces(width), fill)];
+    }
+    lines.push(top);
+    for (str each in block.lines) {
+        MDV_model.Span whole = MDV_model.Span(expand_tabs(each), style: MDV_model.META | MDV_model.DECO);
+        for (List<MDV_model.Span> piece in cut_spans([whole], width - 4)) {
+            List<MDV_model.Span> spans = [chrome("  ", fill)];
+            for (MDV_model.Span span in piece) {
+                spans.push(span);
+            }
+            lines.push(filled(spans, width, fill));
+        }
+    }
+    lines.push([chrome(spaces(width), fill)]);
+    return leaf(context, lines, block.line, "");
+}
+
 Part rule(Context context, int line, int width) {
-    List<List<MDV_model.Span>> lines = [[chrome(DASH.repeat(width), 0)]];
+    int side = (width - 3) / 2;
+    str text = DASH.repeat(width);
+    if (side > 1) {
+        text = DASH.repeat(side) + " \u{25c6} " + DASH.repeat(width - side - 3);
+    }
+    List<List<MDV_model.Span>> lines = [[chrome(text, MDV_model.RULE)]];
     return leaf(context, lines, line, "");
 }
 
-Part quote(Context context, List<MDV_model.Block> blocks, int width) {
-    Part inner = blocks_part(context, blocks, width - 2, true);
-    MDV_model.Span bar = chrome(BAR, 0);
-    return indent(inner, bar, bar, true);
+Part notes(Context context, MDV_model.NoteBlock block, int width) {
+    Part out = Part([], []);
+    List<List<MDV_model.Span>> head = [[chrome(DASH.repeat(8), MDV_model.RULE)]];
+    out.append(leaf(context, head, 0, ""));
+    for (int index in 0 .. block.notes.size()) {
+        MDV_model.Text note = block.notes[index];
+        List<MDV_model.Span> mark = [chrome(superscript_of(index + 1) + " ", MDV_model.FOOT)];
+        Part body = leaf(context, MDV_wrap.wrap(note.spans, width - 3), note.line, plain_of(note.spans));
+        int spare = TUI_text.width(superscript_of(index + 1)) + 1;
+        out.append(indent(body, mark[0], chrome(spaces(spare), 0), false));
+    }
+    return out;
 }
 
-str marker_of(MDV_model.ListBlock list, int index, MDV_model.ListItem item) {
-    if (item.task > 0) {
-        return "";
+str superscript_of(int number) {
+    List<str> marks = ["\u{2070}", "\u{b9}", "\u{b2}", "\u{b3}", "\u{2074}", "\u{2075}", "\u{2076}", "\u{2077}", "\u{2078}", "\u{2079}"];
+    List<str> out = [];
+    for (int digit in str(number).chars()) {
+        out.push(marks[digit - '0']);
+    }
+    return out.join("");
+}
+
+// --- quotes and callouts ------------------------------------------------------------
+
+Part quote(Context context, List<MDV_model.Block> blocks, int width) {
+    Part inner = blocks_part(context, blocks, width - 2, true);
+    MDV_model.Span bar = chrome(BAR, MDV_model.QUOTE);
+    Part body = indent(inner, bar, bar, true);
+    return tinted(body, width, MDV_model.QUOTE);
+}
+
+str callout_icon(int kind) {
+    if (kind == 1) {
+        return "\u{24d8}";
+    }
+    if (kind == 2) {
+        return "\u{2726}";
+    }
+    if (kind == 3) {
+        return "\u{2756}";
+    }
+    if (kind == 4) {
+        return "\u{25b2}";
+    }
+    return "\u{2716}";
+}
+
+Part callout(Context context, MDV_model.CalloutBlock block, int width) {
+    int kind_bits = MDV_model.callout_style(block.kind) | MDV_model.QUOTE;
+    Part inner = Part([], []);
+    List<MDV_model.Span> title = [chrome(callout_icon(block.kind) + " ", MDV_model.TITLE), MDV_model.Span(block.title, style: MDV_model.DECO | MDV_model.TITLE | MDV_model.BOLD)];
+    inner.append(leaf(context, [title], block.line, ""));
+    if (block.kids.size() > 0) {
+        inner.append(blocks_part(context, block.kids, width - 2, true));
+    }
+    // The title is one row; the body follows it directly.
+    MDV_model.Span bar = chrome(BAR, kind_bits | MDV_model.BORDER);
+    Part body = indent(inner, bar, bar, true);
+    return tinted(body, width, kind_bits);
+}
+
+// --- lists ---------------------------------------------------------------------------
+
+str bullet_of(int depth) {
+    int slot = depth % 3;
+    if (slot == 0) {
+        return "\u{2022} ";
+    }
+    if (slot == 1) {
+        return "\u{25e6} ";
+    }
+    return "\u{25aa} ";
+}
+
+str marker_of(Context context, MDV_model.ListBlock list, int index, MDV_model.ListItem item, int digits) {
+    if (item.task == 1) {
+        return "\u{2610} ";
+    }
+    if (item.task == 2) {
+        return "\u{2611} ";
     }
     if (list.is_ordered) {
-        return str(list.start + index) + ". ";
+        str number = str(list.start + index);
+        return spaces(digits - number.size()) + number + ". ";
     }
-    return BULLET;
+    return bullet_of(context.depth);
+}
+
+/// The first paragraph's `[ ]` / `[x]` span as chrome (the glyph stands for
+/// it), so the text after it is all that is left of the item's words.
+List<MDV_model.Block> without_box(List<MDV_model.Block> kids) {
+    List<MDV_model.Block> out = [];
+    for (int index in 0 .. kids.size()) {
+        if (index > 0) {
+            out.push(kids[index]);
+            continue;
+        }
+        match (kids[0]) {
+            case Para(MDV_model.Text text): {
+                List<MDV_model.Span> spans = [];
+                for (int slot in 0 .. text.spans.size()) {
+                    MDV_model.Span span = text.spans[slot];
+                    if (slot == 0 && span.has_bits(MDV_model.TASK)) {
+                        continue;
+                    }
+                    if (slot == 1 && span.text.starts_with(" ")) {
+                        spans.push(MDV_model.Span(span.text.substr(1, span.text.size()), style: span.style, link: span.link));
+                        continue;
+                    }
+                    spans.push(span);
+                }
+                out.push(MDV_model.Block.Para(MDV_model.Text(spans, line: text.line)));
+            }
+            case Callout(MDV_model.CalloutBlock skipped_callout): {
+                out.push(kids[0]);
+            }
+            case Meta(MDV_model.MetaBlock skipped_meta): {
+                out.push(kids[0]);
+            }
+            case Notes(MDV_model.NoteBlock skipped_notes): {
+                out.push(kids[0]);
+            }
+            case Rule(int skipped_line): {
+                out.push(kids[0]);
+            }
+            case Head(MDV_model.HeadingBlock skipped_head): {
+                out.push(kids[0]);
+            }
+            case Code(MDV_model.CodeBlock skipped_code): {
+                out.push(kids[0]);
+            }
+            case Quote(List<MDV_model.Block> skipped_quote): {
+                out.push(kids[0]);
+            }
+            case Items(MDV_model.ListBlock skipped_list): {
+                out.push(kids[0]);
+            }
+            case Table(MDV_model.Grid skipped_grid): {
+                out.push(kids[0]);
+            }
+        }
+    }
+    return out;
+}
+
+bool is_list(MDV_model.Block block) {
+    match (block) {
+        case Items(MDV_model.ListBlock skipped): {
+            return true;
+        }
+        case Callout(MDV_model.CalloutBlock skipped_callout): {
+            return false;
+        }
+        case Meta(MDV_model.MetaBlock skipped_meta): {
+            return false;
+        }
+        case Notes(MDV_model.NoteBlock skipped_notes): {
+            return false;
+        }
+        case Rule(int skipped_line): {
+            return false;
+        }
+        case Para(MDV_model.Text skipped_text): {
+            return false;
+        }
+        case Head(MDV_model.HeadingBlock skipped_head): {
+            return false;
+        }
+        case Code(MDV_model.CodeBlock skipped_code): {
+            return false;
+        }
+        case Quote(List<MDV_model.Block> skipped_quote): {
+            return false;
+        }
+        case Table(MDV_model.Grid skipped_grid): {
+            return false;
+        }
+    }
 }
 
 Part items(Context context, MDV_model.ListBlock list, int width) {
-    // Ordered markers are as wide as the widest one, so the text lines up.
+    // Numbers are as wide as the widest one and right-aligned, and every
+    // marker is as wide as the widest, so the text lines up.
+    int digits = str(list.start + list.items.size() - 1).size();
     int lead = 2;
     for (int index in 0 .. list.items.size()) {
-        int marker_width = TUI_text.width(marker_of(list, index, list.items[index]));
+        int marker_width = TUI_text.width(marker_of(context, list, index, list.items[index], digits));
         if (marker_width > lead) {
             lead = marker_width;
         }
@@ -230,19 +613,39 @@ Part items(Context context, MDV_model.ListBlock list, int width) {
         if (index > 0 && !list.is_tight) {
             out.blank();
         }
-        Part body = blocks_part(context, item.kids, width - lead, !list.is_tight);
-        str marker = marker_of(list, index, item);
-        str shown = spaces(lead - TUI_text.width(marker)) + marker;
-        if (list.is_ordered) {
-            shown = marker + spaces(lead - TUI_text.width(marker));
+        List<MDV_model.Block> kids = item.kids;
+        if (item.task > 0) {
+            kids = without_box(kids);
         }
+        context.depth = context.depth + 1;
+        Part body = Part([], []);
+        MDV_model.Span guide = chrome("\u{2502} ", MDV_model.GUIDE);
+        for (int slot in 0 .. kids.size()) {
+            if (slot > 0 && !list.is_tight) {
+                body.blank();
+            }
+            Part one = blocks_part(context, [kids[slot]], width - lead, false);
+            if (slot > 0 && is_list(kids[slot])) {
+                one = indent(one, guide, guide, true);
+            }
+            body.append(one);
+        }
+        context.depth = context.depth - 1;
+        str marker = marker_of(context, list, index, item, digits);
+        int marker_bits = MDV_model.BULLET;
+        if (item.task > 0) {
+            marker_bits = marker_bits | MDV_model.TASK;
+        }
+        str shown = marker + spaces(lead - TUI_text.width(marker));
         if (body.rows.size() == 0) {
             body.rows.push(blank_row());
         }
-        out.append(indent(body, chrome(shown, 0), chrome(spaces(lead), 0), false));
+        out.append(indent(body, chrome(shown, marker_bits), chrome(spaces(lead), 0), false));
     }
     return out;
 }
+
+// --- tables --------------------------------------------------------------------------
 
 /// Shrink `widths` until their table, borders included, fits in `width`.
 void fit_columns(List<int> widths, int width) {
@@ -266,27 +669,27 @@ void fit_columns(List<int> widths, int width) {
     }
 }
 
-List<MDV_model.Span> border(str left, str middle, str right, List<int> widths) {
+List<MDV_model.Span> border(str left, str middle, str right, str dash, List<int> widths) {
     List<str> parts = [left];
     for (int index in 0 .. widths.size()) {
-        parts.push(DASH.repeat(widths[index] + 2));
+        parts.push(dash.repeat(widths[index] + 2));
         if (index + 1 < widths.size()) {
             parts.push(middle);
         }
     }
     parts.push(right);
-    return [chrome(parts.join(""), 0)];
+    return [chrome(parts.join(""), MDV_model.BORDER)];
 }
 
 /// One table row of cells as terminal rows: cells wrapped to their column and
-/// padded to a common height.
-List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> widths, List<int> align) {
+/// padded to a common height. `bits` shade the cells (header, zebra).
+List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> widths, List<int> align, int bits) {
     List<List<List<MDV_model.Span>>> columns = [];
     int height = 1;
     for (int column in 0 .. widths.size()) {
         List<MDV_model.Span> spans = [];
         if (column < cells.size()) {
-            spans = cells[column].spans;
+            spans = with_bits(cells[column].spans, bits & MDV_model.ZEBRA);
         }
         List<List<MDV_model.Span>> wrapped = MDV_wrap.wrap(spans, widths[column]);
         if (wrapped.size() > height) {
@@ -296,7 +699,7 @@ List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> width
     }
     List<List<MDV_model.Span>> out = [];
     for (int index in 0 .. height) {
-        List<MDV_model.Span> spans = [chrome("\u{2502} ", 0)];
+        List<MDV_model.Span> spans = [chrome("\u{2502}", MDV_model.BORDER), chrome(" ", bits)];
         for (int column in 0 .. widths.size()) {
             List<MDV_model.Span> cell_line = [];
             if (index < columns[column].size()) {
@@ -315,15 +718,15 @@ List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> width
             }
             int after = pad - before;
             if (before > 0) {
-                spans.push(chrome(spaces(before), 0));
+                spans.push(chrome(spaces(before), bits));
             }
             for (MDV_model.Span span in cell_line) {
                 spans.push(span);
             }
+            spans.push(chrome(spaces(after) + " ", bits));
+            spans.push(chrome("\u{2502}", MDV_model.BORDER));
             if (column + 1 < widths.size()) {
-                spans.push(chrome(spaces(after) + " \u{2502} ", 0));
-            } else {
-                spans.push(chrome(spaces(after) + " \u{2502}", 0));
+                spans.push(chrome(" ", bits));
             }
         }
         out.push(spans);
@@ -354,17 +757,21 @@ Part table(Context context, MDV_model.Grid grid, int width) {
     }
     fit_columns(widths, width);
     List<List<MDV_model.Span>> lines = [];
-    lines.push(border("\u{250c}", "\u{252c}", "\u{2510}", widths));
-    for (List<MDV_model.Span> row_line in table_row(grid.heads, widths, grid.align)) {
+    lines.push(border("\u{256d}", "\u{252c}", "\u{256e}", DASH, widths));
+    for (List<MDV_model.Span> row_line in table_row(grid.heads, widths, grid.align, MDV_model.HEAD_CELL)) {
         lines.push(row_line);
     }
-    lines.push(border("\u{251c}", "\u{253c}", "\u{2524}", widths));
-    for (List<MDV_model.Cell> row in grid.rows) {
-        for (List<MDV_model.Span> row_line in table_row(row, widths, grid.align)) {
+    lines.push(border("\u{255e}", "\u{256a}", "\u{2561}", DOUBLE, widths));
+    for (int index in 0 .. grid.rows.size()) {
+        int bits = 0;
+        if (context.options.is_zebra && index % 2 == 1) {
+            bits = MDV_model.ZEBRA;
+        }
+        for (List<MDV_model.Span> row_line in table_row(grid.rows[index], widths, grid.align, bits)) {
             lines.push(row_line);
         }
     }
-    lines.push(border("\u{2514}", "\u{2534}", "\u{2518}", widths));
+    lines.push(border("\u{2570}", "\u{2534}", "\u{256f}", DASH, widths));
     List<str> texts = [cells_text(grid.heads)];
     for (List<MDV_model.Cell> row in grid.rows) {
         texts.push(cells_text(row));
@@ -392,6 +799,15 @@ Part blocks_part(Context context, List<MDV_model.Block> blocks, int width, bool 
             out.blank();
         }
         match (blocks[index]) {
+            case Callout(MDV_model.CalloutBlock note): {
+                out.append(callout(context, note, room));
+            }
+            case Meta(MDV_model.MetaBlock card): {
+                out.append(meta(context, card, room));
+            }
+            case Notes(MDV_model.NoteBlock foot): {
+                out.append(notes(context, foot, room));
+            }
             case Rule(int rule_line): {
                 out.append(rule(context, rule_line, room));
             }
@@ -418,10 +834,15 @@ Part blocks_part(Context context, List<MDV_model.Block> blocks, int width, bool 
     return out;
 }
 
-/// `doc` laid out to `width` columns.
+/// `doc` laid out to `width` columns with the default options.
 pub MDV_model.Layout layout(MDV_model.Document doc, int width) {
-    Context context = Context([], []);
-    Part part = blocks_part(context, doc.blocks, width, true);
+    return layout_with(doc, Options(width));
+}
+
+/// `doc` laid out as `options` say.
+pub MDV_model.Layout layout_with(MDV_model.Document doc, Options options) {
+    Context context = Context([], [], options);
+    Part part = blocks_part(context, doc.blocks, options.width, true);
     List<MDV_model.Link> links = [];
     for (MDV_model.Link link in doc.links) {
         links.push(MDV_model.Link(link.href, link.title, link.label, row: -1));
@@ -434,5 +855,5 @@ pub MDV_model.Layout layout(MDV_model.Document doc, int width) {
             }
         }
     }
-    return MDV_model.Layout(part.rows, part.heads, links, width, context.texts);
+    return MDV_model.Layout(part.rows, part.heads, links, options.width, context.texts);
 }

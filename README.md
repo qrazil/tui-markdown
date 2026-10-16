@@ -26,16 +26,63 @@ On Alpine (musl) the installer picks the `-musl` Linux asset built by `scripts/c
 
 ## What it shows
 
-Headings, paragraphs (wrapped to the terminal, reflowed on resize), emphasis,
-strong, inline code, links and images (as `[image: alt]`), block quotes
-(nested), bullet, ordered and task lists (nested, tight and loose), fenced
-and indented code blocks, tables (with column alignment, wrapping inside the
-cells), and horizontal rules. East Asian wide characters, emoji (ZWJ
-sequences, skin tones, flags) and combining marks are measured and wrapped
-by grapheme cluster, never split. Text is centred in at most 100 columns.
+A page that reads like a rendered document, not like source with colours:
 
-Light and dark themes: `--theme dark|light|plain`. Without the flag it asks
-`COLORFGBG`, and it uses plain when `NO_COLOR` is set to anything non-empty.
+- **Headings with a real hierarchy.** H1 is a full-width band with a double
+  rule under it (and, on kitty, the title at twice the size through the text
+  sizing protocol, OSC 66); H2 has an accent bar and a rule; H3 to H6 each
+  have a marker and a hue.
+- **Lists** with bullets by depth (`•` `◦` `▪`), aligned numbers, `☐` / `☑`
+  task boxes and indentation guides.
+- **Block quotes** with a bar and a tint, and **callouts**: `> [!NOTE]`,
+  `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` (with an optional title
+  after the marker) get an icon, a colour and their own tint.
+- **Code blocks as cards**: a background, a language chip, syntax colours (the
+  [syntax](https://github.com/qrazil/syntax) library), optional line numbers.
+- **Tables** in rounded boxes with a tinted header, alignment, wrapping inside
+  cells, and optional zebra rows.
+- **Links** underlined in the accent colour and written as OSC 8 hyperlinks
+  where the terminal has them; hovering one shows its target in the status line.
+- Front matter as a dim metadata card, footnotes, `~~strikethrough~~`, images
+  as a labelled placeholder, horizontal rules.
+- East Asian wide characters, emoji (ZWJ sequences, skin tones, flags) and
+  combining marks are measured and wrapped by grapheme cluster, never split.
+  Text is centred in at most 100 columns (`--max-width`).
+- A header row with an outline button, a sticky breadcrumb of the headings
+  above the window and a theme button; an optional outline sidebar; a
+  scrollbar you can drag; a status line with position and percentage.
+
+### Themes
+
+`--theme dark|light|tokyonight|nightfox|gruvbox-material|plain`. The default
+is `light` when `COLORFGBG` says so, `plain` when `NO_COLOR` is set to
+anything non-empty, else `dark`. In the viewer, `t` or a click on the theme
+name in the header switches to the next one. Colours are 24-bit and fold
+down to 256 or 16 colours on terminals that have no more; `--colors
+16|256|24bit` forces it.
+
+### What the terminal gets
+
+Nothing is probed; the environment decides (`TERM`, `TERM_PROGRAM`,
+`COLORTERM`, `KITTY_WINDOW_ID`, ...) and a flag overrides. OSC 8 links are on
+everywhere except macOS Terminal.app (which prints what it does not know) and
+dumb terminals (`--links on|off`); scaled H1 is on for kitty
+(`--scale on|off`). Everything else is plain colour and works anywhere. See
+`docs/DESIGN.md` for the research and the reasons.
+
+### Mouse
+
+The wheel scrolls; a click follows a link (an external one is handed to
+`xdg-open` / `open`), jumps to a heading in the sidebar, presses a header
+button, or moves the scrollbar (drag it too). Moving the pointer over a link
+shows where it goes.
+
+### `--dump`
+
+`tui-markdown --dump --width 80 --theme tokyonight FILE` writes the page as
+the screen shows it (theme background, margins, padding) with no terminal, as
+ANSI text. `docs/screenshots/` has one per theme; `--zebra`, `--numbers`,
+`--scale on` and `--links on` apply to it as they do on screen.
 
 ## Keys
 
@@ -49,6 +96,8 @@ Light and dark themes: `--theme dark|light|plain`. Without the flag it asks
 | `/` | search: type, `Enter` runs it, `Esc` cancels. Smart case: lower case matches any case, a capital makes it exact |
 | `n` `N` | next / previous match (wraps; `3n` goes three on) |
 | `o` | outline of the headings: `j`/`k` move, `l`/`h` open and close, `Enter` goes there |
+| `b` | dock / undock the outline sidebar (click a heading to go there) |
+| `t` | next theme |
 | `Tab` `Shift-Tab` | focus the next / previous link; the target shows on the status line |
 | `Enter` | follow the focused link |
 | `Ctrl-o`, `Backspace` | back to where you were (block, offset and link focus are restored) |
@@ -115,7 +164,7 @@ MDV_*.m31          the program's modules, flat at the root (14 files)
 deps, deps.lock    version and pins: tui (widgets), term-markdown (parser)
 scripts/build.sh   builds ./tui-markdown
 tests/             test.sh (the one entry point), unit, oracle, goldens, pty
-docs/design.md     the design and the changes proposed to term-markdown
+docs/DESIGN.md     the design and the changes proposed to term-markdown
 RENAMES.md         what changed between releases, for a user or a dependent
 .github/workflows  test.yml (3 platforms), release.yml (v* tags)
 ```
@@ -141,7 +190,7 @@ RENAMES.md         what changed between releases, for a user or a dependent
 `MDV_viewer` knows nothing about the terminal: it takes `term.Key`s and
 produces state and a list of `Request`s (`Reload`, `Open(path)`,
 `Copy(text)`); `MDV_app` performs them. That is what lets `tests/t_viewer.m31`
-test the whole key set with no pty. `docs/design.md` has the detail and the
+test the whole key set with no pty. `docs/DESIGN.md` has the detail and the
 changes proposed to term-markdown.
 
 ## Tests

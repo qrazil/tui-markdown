@@ -1,6 +1,7 @@
 // The command line: what to show, and whether to print it or run it.
 
 import MDV_app;
+import MDV_caps;
 import MDV_cat;
 import MDV_layout;
 import MDV_loop;
@@ -21,7 +22,15 @@ args.Parser parser() {
     args.Parser cli = args.Parser("tui-markdown", summary: "Read markdown in the terminal, with vim keys.");
     cli.flag("cat", help: "print the rendering and exit (the default when standard output is not a terminal)");
     cli.integer("width", help: "columns for --cat (default: the terminal's, or 80)", placeholder: "N");
-    cli.value("theme", help: "dark, light or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
+    cli.flag("dump", help: "print the page as the screen shows it (theme background, margins) at --width, with no terminal needed");
+    cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N");
+    cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
+    cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (kitty)", placeholder: "MODE");
+    cli.value("links", help: "OSC 8 hyperlinks: on, off or auto", placeholder: "MODE");
+    cli.value("colors", help: "16, 256 or 24bit (default: from the terminal)", placeholder: "DEPTH");
+    cli.flag("zebra", help: "shade alternate table rows");
+    cli.flag("numbers", help: "line numbers in code blocks");
+    cli.flag("side", help: "open with the outline sidebar");
     cli.flag("no-watch", help: "do not reload when the file changes");
     cli.tail("files", help: "markdown files; with none, standard input", placeholder: "FILE");
     return cli;
@@ -84,12 +93,43 @@ MDV_theme.Theme pick_theme(args.Parsed given) {
     return MDV_theme.dark();
 }
 
-TUI_style.Depth pick_depth() {
-    str terminal = os.env("TERM").or("");
-    if (terminal == "linux" || terminal == "dumb" || terminal == "vt100" || terminal == "ansi") {
-        return TUI_style.Depth.Ansi16;
+/// The capabilities to use: what the environment says, overridden by the
+/// flags.
+MDV_caps.Caps pick_caps(args.Parsed given, bool is_screen) {
+    MDV_caps.Caps caps = MDV_caps.bare();
+    if (is_screen) {
+        caps = MDV_caps.detect();
+    } else {
+        caps.depth = MDV_caps.detect().depth;
     }
-    return TUI_style.Depth.Ansi256;
+    match (given.value("colors")) {
+        case Some(str depth): {
+            if (depth == "16") {
+                caps.depth = TUI_style.Depth.Ansi16;
+            } else if (depth == "256") {
+                caps.depth = TUI_style.Depth.Ansi256;
+            } else if (depth == "24bit" || depth == "truecolor") {
+                caps.depth = TUI_style.Depth.TrueColour;
+            }
+        }
+        case None: {
+        }
+    }
+    match (given.value("scale")) {
+        case Some(str mode): {
+            caps.has_scale = mode == "on";
+        }
+        case None: {
+        }
+    }
+    match (given.value("links")) {
+        case Some(str mode): {
+            caps.has_links = mode == "on";
+        }
+        case None: {
+        }
+    }
+    return caps;
 }
 
 /// One source of text: its name and what it said.
@@ -131,7 +171,44 @@ bool is_written(bytes data) {
     }
 }
 
-int run_cat(List<str> names, int width, MDV_theme.Theme theme, TUI_style.Depth depth) {
+/// What a print of the layout is told: the page and what to switch on.
+type Look {
+    MDV_theme.Theme theme;
+    MDV_caps.Caps caps;
+    int width;
+    int max_width;
+    bool is_dump;
+    bool is_zebra;
+    bool has_numbers;
+}
+
+/// The text column for a page `width` wide, as the viewer picks it.
+int text_width(int width, int max_width) {
+    int text = width - 1 - 2;
+    if (max_width > 0 && text > max_width) {
+        text = max_width;
+    }
+    if (text < 8) {
+        text = 8;
+    }
+    return text;
+}
+
+bytes print_one(str text, Look look) {
+    if (look.is_dump) {
+        int wide = text_width(look.width, look.max_width);
+        MDV_layout.Options options = MDV_layout.Options(wide, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers);
+        int left = (look.width - 1 - wide) / 2;
+        if (left < 1) {
+            left = 1;
+        }
+        return MDV_cat.dump(text, options, look.theme, look.caps, left, look.width);
+    }
+    MDV_layout.Options options = MDV_layout.Options(look.width, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers);
+    return MDV_cat.render_with(MDV_layout.layout_with(MDV_prepare.prepare(text), options), look.theme, look.caps, 0, 0);
+}
+
+int run_cat(List<str> names, Look look) {
     for (int index in 0 .. names.size()) {
         match (load(names[index])) {
             case Ok(Source source): {
@@ -140,7 +217,7 @@ int run_cat(List<str> names, int width, MDV_theme.Theme theme, TUI_style.Depth d
                         return 0;
                     }
                 }
-                if (!is_written(MDV_cat.cat(source.text, width, theme, depth))) {
+                if (!is_written(print_one(source.text, look))) {
                     return 0;
                 }
             }
@@ -153,7 +230,7 @@ int run_cat(List<str> names, int width, MDV_theme.Theme theme, TUI_style.Depth d
     return 0;
 }
 
-int run_viewer(List<str> names, List<str> files, MDV_theme.Theme theme, TUI_style.Depth depth, bool is_watching) {
+int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bool is_side) {
     match (load(names[0])) {
         case Err(str why): {
             io.eprint("tui-markdown: " + why);
@@ -162,11 +239,20 @@ int run_viewer(List<str> names, List<str> files, MDV_theme.Theme theme, TUI_styl
         case Ok(Source source): {
             term.Size size = TUI_app.screen_size();
             MDV_viewer.Viewer viewer = MDV_viewer.open(files, source.name, source.text, size.columns, size.rows);
-            MDV_app.App app = MDV_app.open(viewer);
+            viewer.max_width = look.max_width;
+            viewer.is_scaled = look.caps.has_scale;
+            viewer.is_zebra = look.is_zebra;
+            viewer.has_numbers = look.has_numbers;
+            viewer.is_side_open = is_side;
+            viewer.resize(size.columns, size.rows);
+            viewer.relayout();
+            MDV_app.App app = MDV_app.open(viewer, look.theme, look.caps);
             app.is_watching = is_watching;
-            MDV_render.Screen screen = MDV_render.Screen(viewer, theme);
-            TUI_app.Loop loop = TUI_app.Loop(depth: depth);
-            match (MDV_loop.run(loop, screen, app)) {
+            TUI_app.Loop loop = TUI_app.Loop(depth: look.caps.depth);
+            loop.should_report_mouse = true;
+            loop.should_report_hover = true;
+            loop.should_report_paste = true;
+            match (MDV_loop.run(loop, app.screen, app)) {
                 case Ok(int status): {
                     return 0;
                 }
@@ -206,24 +292,29 @@ pub int run(List<str> argv) {
                 }
                 names = [MDV_app.STDIN_NAME];
             }
-            MDV_theme.Theme theme = pick_theme(given);
-            TUI_style.Depth depth = pick_depth();
-            bool is_interactive = !given.is_flag_set("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
+            bool is_dump = given.is_flag_set("dump");
+            bool is_interactive = !is_dump && !given.is_flag_set("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
+            Look look = Look(pick_theme(given), pick_caps(given, is_interactive), given.integer("width").or(0), given.integer("max-width").or(MDV_viewer.MAX_TEXT_WIDTH), is_dump, given.is_flag_set("zebra"), given.is_flag_set("numbers"));
             if (!is_interactive) {
-                int width = given.integer("width").or(0);
-                if (width < 1) {
-                    width = DEFAULT_CAT_WIDTH;
+                if (look.width < 1) {
+                    look.width = DEFAULT_CAT_WIDTH;
+                    if (is_dump) {
+                        look.width = 100;
+                    }
                     if (term.is_terminal(1)) {
-                        width = TUI_app.screen_size().columns;
+                        look.width = TUI_app.screen_size().columns;
                     }
                 }
-                return run_cat(names, width, theme, depth);
+                if (is_dump && given.value("colors").is_none()) {
+                    look.caps.depth = TUI_style.Depth.TrueColour;
+                }
+                return run_cat(names, look);
             }
             List<str> files = [];
             if (names[0] != MDV_app.STDIN_NAME && names[0] != "-") {
                 files = names;
             }
-            return run_viewer(names, files, theme, depth, !given.is_flag_set("no-watch"));
+            return run_viewer(names, files, look, !given.is_flag_set("no-watch"), given.is_flag_set("side"));
         }
     }
 }

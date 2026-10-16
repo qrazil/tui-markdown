@@ -32,6 +32,8 @@ pub interface Host {
     bool needs_redraw();
     /// Bytes to write to the terminal as they are, and forget; empty for none.
     bytes take_output();
+    /// Bytes to write after every frame's cells (links, scaled text).
+    bytes after_frame();
 }
 
 /// The descriptor keys are read from: standard input if it is a terminal,
@@ -57,15 +59,16 @@ pub Result<int, term.Error> run(TUI_app.Loop loop, TUI_widget.Widget view, Host 
             return Result<int, term.Error>.Err(error);
         }
         case Ok(term.Session session): {
-            session.on_exit(loop.leave);
+            session.on_exit(loop.leave_sequence());
             term.Writer writer = term.writer(io.stdout());
-            writer.put(loop.enter);
+            writer.put(loop.enter_sequence());
             term.Reader reader = term.reader(descriptor: in_fd);
             term.Size window_size = TUI_app.screen_size();
             TUI_buffer.Buffer previous = TUI_buffer.Buffer.sized(window_size.columns, window_size.rows);
             TUI_buffer.Buffer next = TUI_buffer.Buffer.sized(window_size.columns, window_size.rows);
             view.render(previous, previous.area());
             writer.put_bytes(TUI_diff.full(previous, loop.depth));
+            writer.put_bytes(host.after_frame());
             flush(writer);
             bool is_running = true;
             int idle = 0;
@@ -131,6 +134,7 @@ pub Result<int, term.Error> run(TUI_app.Loop loop, TUI_widget.Widget view, Host 
                         } else {
                             writer.put_bytes(TUI_diff.diff(previous, next, loop.depth));
                         }
+                        writer.put_bytes(host.after_frame());
                         flush(writer);
                         TUI_buffer.Buffer shown = previous;
                         previous = next;

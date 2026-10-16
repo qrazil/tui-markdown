@@ -6,10 +6,15 @@
 // `outbox` for the loop to write; auto-reload is a `stat` on every idle tick,
 // comparing size and modification time with the last look.
 
+import MDV_caps;
+import MDV_render;
+import MDV_theme;
 import MDV_viewer;
 import encoding.base64;
 import fs;
 import io;
+import os;
+import proc;
 import term;
 import tui.app.TUI_app;
 
@@ -84,11 +89,14 @@ pub str stamp_of(str path) {
 
 pub type App {
     pub MDV_viewer.Viewer viewer;
+    pub MDV_render.Screen screen;
     pub bytes outbox = [];
     /// `stamp_of` the file as last read.
     pub str stamp = "";
     /// Should a change on disk reload the file?
     pub bool is_watching = true;
+    /// Does `open` rather than `xdg-open` open a URL (macOS)?
+    pub bool is_mac = false;
 }
 
 void App.reload() {
@@ -119,6 +127,34 @@ void App.open_file(str path) {
     }
 }
 
+/// Hand `url` to the desktop's opener; when there is none, copy it.
+void App.open_url(str url) {
+    str opener = "xdg-open";
+    match (os.env("OSTYPE")) {
+        case Some(str kind): {
+            if (kind.starts_with("darwin")) {
+                opener = "open";
+            }
+        }
+        case None: {
+        }
+    }
+    if (is_mac) {
+        opener = "open";
+    }
+    match (proc.run([opener, url], timeout_ms: 3000, should_check: false, is_quiet: true)) {
+        case Ok(proc.Completed done): {
+            if (done.is_success()) {
+                return;
+            }
+        }
+        case Err(proc.Error error): {
+        }
+    }
+    outbox.extend(copy_sequence(url));
+    viewer.message = "could not open, copied " + url;
+}
+
 /// Do what the viewer asked for since the last key.
 pub void App.serve() {
     for (MDV_viewer.Request request in viewer.drain()) {
@@ -132,6 +168,9 @@ pub void App.serve() {
             case Copy(str text): {
                 outbox.extend(copy_sequence(text));
             }
+            case OpenUrl(str url): {
+                open_url(url);
+            }
         }
     }
 }
@@ -144,7 +183,9 @@ pub TUI_app.Action App.handle(term.Event event) {
             return action;
         }
         case Mouse(term.Mouse mouse): {
-            return TUI_app.Action.Continue;
+            TUI_app.Action action = viewer.mouse(mouse);
+            serve();
+            return action;
         }
         case Paste(str text): {
             return TUI_app.Action.Continue;
@@ -168,14 +209,21 @@ pub bool App.needs_redraw() {
     return true;
 }
 
+/// Bytes to write after each frame: what the cell buffer cannot say.
+pub bytes App.after_frame() {
+    return screen.overlay;
+}
+
 pub bytes App.take_output() {
     bytes out = outbox;
     outbox = [];
     return out;
 }
 
-pub App open(MDV_viewer.Viewer viewer) {
-    App app = App(viewer);
+pub App open(MDV_viewer.Viewer viewer, MDV_theme.Theme theme, MDV_caps.Caps caps) {
+    MDV_render.Screen screen = MDV_render.Screen(viewer, theme);
+    screen.caps = caps;
+    App app = App(viewer, screen);
     app.stamp = stamp_of(viewer.name);
     return app;
 }

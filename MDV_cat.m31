@@ -1,26 +1,126 @@
-// `--cat`: the layout as ANSI text, for a pipe or a pager.
+// `--cat` and `--dump`: the layout as ANSI text, for a pipe, a pager, or a
+// file to look at.
 //
 // The same rows the viewer shows, written once: every row's spans styled by
 // the theme, the pen changed only when the style changes, and a reset at the
 // end of each styled row. With the plain theme (NO_COLOR) there is not one
-// escape in the output.
+// escape in the output. With `caps.has_links` a link's text is wrapped in
+// OSC 8, and with `caps.has_scale` a scaled heading is an OSC 66 sequence.
 
+import MDV_caps;
 import MDV_layout;
 import MDV_model;
 import MDV_prepare;
 import MDV_theme;
+import MDV_wrap;
 import tui.core.TUI_style;
 
+const str ESC_ST = "\x1b\\";
+
+/// `href` as a URI an OSC 8 may carry: bytes outside 33..126 are escaped.
+pub str encode_uri(str href) {
+    List<str> out = [];
+    str digits = "0123456789ABCDEF";
+    for (int index in 0 .. href.size()) {
+        int value = href.byte_at(index);
+        if (value > 32 && value < 127) {
+            out.push(href.substr(index, index + 1));
+        } else {
+            out.push("%" + digits.substr(value / 16, value / 16 + 1) + digits.substr(value % 16, value % 16 + 1));
+        }
+    }
+    return out.join("");
+}
+
+/// Does a link to `href` get an OSC 8 sequence? A `#anchor` or a relative
+/// path means nothing to the terminal; the viewer follows those itself.
+pub bool is_openable(str href) {
+    if (href.size() == 0 || href.starts_with("#")) {
+        return false;
+    }
+    return href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") || href.starts_with("ftp://");
+}
+
+/// The OSC 8 sequence that starts link `index` going to `href`, or closes
+/// the open one when `href` is "".
+pub str link_sequence(int index, str href) {
+    if (href.size() == 0) {
+        return "\x1b]8;;" + ESC_ST;
+    }
+    return "\x1b]8;id=l" + str(index) + ";" + encode_uri(href) + ESC_ST;
+}
+
+/// The OSC 66 sequence that shows `text` at scale `scale`.
+pub str scaled_sequence(int scale, str text) {
+    return "\x1b]66;s=" + str(scale) + ";" + text + ESC_ST;
+}
+
 /// `layout` as bytes in the terminal's language at colour depth `depth`.
-pub bytes render(MDV_model.Layout layout, MDV_theme.Theme theme, TUI_style.Depth depth) {
+/// Rows start `left` columns in and are padded to `pad` columns with the
+/// theme's background when `pad` is above zero (a dump shows the page as it
+/// is on screen).
+pub bytes render_with(MDV_model.Layout layout, MDV_theme.Theme theme, MDV_caps.Caps caps, int left, int pad) {
     bytes out = [];
+    TUI_style.Depth depth = caps.depth;
+    TUI_style.Style page = MDV_theme.base_style(theme);
+    int base = page.pack();
+    // A print to a pipe leaves the page's own background to the terminal; a
+    // dump paints it.
+    bool is_page = pad > 0;
     for (MDV_model.Row row in layout.rows) {
+        if (row.big < 0) {
+            out.push('\n');
+            continue;
+        }
         int pen = TUI_style.RESET_STYLE;
+        int open_link = -1;
+        int used = left;
+        if (left > 0) {
+            if (!theme.is_plain) {
+                TUI_style.sgr(out, pen, base, depth);
+                pen = base;
+            }
+            out.extend(" ".repeat(left).to_bytes());
+        }
         for (MDV_model.Span span in row.spans) {
-            int target = MDV_theme.style_for(theme, span.style).pack();
+            TUI_style.Style shown = MDV_theme.style_for(theme, span.style);
+            if (!is_page && shown.background.eq(page.background)) {
+                shown = shown.with_background(TUI_style.Colour.Default);
+            }
+            if (!is_page && shown.foreground.eq(page.foreground)) {
+                shown = shown.with_foreground(TUI_style.Colour.Default);
+            }
+            int target = shown.pack();
             TUI_style.sgr(out, pen, target, depth);
             pen = target;
-            out.extend(span.text.to_bytes());
+            int want = -1;
+            if (caps.has_links && span.link >= 0 && span.has_bits(MDV_model.LINK) && is_openable(layout.links[span.link].href)) {
+                want = span.link;
+            }
+            if (want != open_link) {
+                if (open_link >= 0) {
+                    out.extend(link_sequence(0, "").to_bytes());
+                }
+                if (want >= 0) {
+                    out.extend(link_sequence(want, layout.links[want].href).to_bytes());
+                }
+                open_link = want;
+            }
+            if (row.big > 0 && span.has_bits(MDV_model.HEADING) && !span.has_bits(MDV_model.DECO)) {
+                out.extend(scaled_sequence(row.big, span.text).to_bytes());
+                used = used + 2 * MDV_wrap.spans_width([span]);
+            } else {
+                out.extend(span.text.to_bytes());
+                used = used + MDV_wrap.spans_width([span]);
+            }
+        }
+        if (open_link >= 0) {
+            out.extend(link_sequence(0, "").to_bytes());
+        }
+        if (pad > used && !theme.is_plain && row.big == 0) {
+            TUI_style.sgr(out, pen, base, depth);
+            pen = base;
+            out.extend(" ".repeat(pad - used).to_bytes());
         }
         if (pen != TUI_style.RESET_STYLE) {
             TUI_style.push_reset(out);
@@ -30,7 +130,20 @@ pub bytes render(MDV_model.Layout layout, MDV_theme.Theme theme, TUI_style.Depth
     return out;
 }
 
+/// `layout` as bytes at colour depth `depth`, with no links and no scaling.
+pub bytes render(MDV_model.Layout layout, MDV_theme.Theme theme, TUI_style.Depth depth) {
+    MDV_caps.Caps caps = MDV_caps.bare();
+    caps.depth = depth;
+    return render_with(layout, theme, caps, 0, 0);
+}
+
 /// The markdown in `source` as ANSI text at `width` columns.
 pub bytes cat(str source, int width, MDV_theme.Theme theme, TUI_style.Depth depth) {
     return render(MDV_layout.layout(MDV_prepare.prepare(source), width), theme, depth);
+}
+
+/// The markdown in `source` as the screen shows it: laid out as `options`
+/// say, written with `caps`, padded to `pad` columns.
+pub bytes dump(str source, MDV_layout.Options options, MDV_theme.Theme theme, MDV_caps.Caps caps, int left, int pad) {
+    return render_with(MDV_layout.layout_with(MDV_prepare.prepare(source), options), theme, caps, left, pad);
 }

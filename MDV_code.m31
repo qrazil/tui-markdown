@@ -1,0 +1,88 @@
+// Syntax colouring for fenced code: a fence's info string to the language the
+// `syntax` library knows, and each line of code to spans whose style bits
+// carry the token class (`MDV_model.syntax_style`). Which colour a class is
+// belongs to the theme, so a theme change never re-tokenizes.
+
+import MDV_model;
+import tui.core.TUI_syntax;
+
+/// The language of a fence's info string ("rust", "py", "{.js}", "sh title=x"),
+/// "" when it names none the library knows.
+pub str language_of(str info) {
+    str word = info.trim();
+    if (word.starts_with("{")) {
+        word = word.substr(1, word.size());
+    }
+    if (word.starts_with(".")) {
+        word = word.substr(1, word.size());
+    }
+    int stop = word.size();
+    for (int index in 0 .. word.size()) {
+        int byte_value = word.byte_at(index);
+        if (byte_value == ' ' || byte_value == ',' || byte_value == '}' || byte_value == '{' || byte_value == '\t') {
+            stop = index;
+            break;
+        }
+    }
+    word = word.substr(0, stop).to_lower();
+    if (word.size() == 0) {
+        return "";
+    }
+    for (str name in TUI_syntax.languages()) {
+        if (name == word) {
+            return name;
+        }
+    }
+    if (word == "shell" || word == "zsh" || word == "bash" || word == "console") {
+        return "sh";
+    }
+    return TUI_syntax.language_of("x." + word, "");
+}
+
+/// `lines` as spans, one list per line, coloured as language `language`
+/// (every line plain when it is "").
+pub List<List<MDV_model.Span>> highlight(str language, List<str> lines) {
+    List<List<MDV_model.Span>> out = [];
+    int state = 0;
+    for (str text in lines) {
+        if (language.size() == 0 || text.size() == 0) {
+            out.push([MDV_model.Span(text, style: MDV_model.BLOCK)]);
+            continue;
+        }
+        TUI_syntax.Tokens tokens = TUI_syntax.classify(language, text, state);
+        state = tokens.state;
+        out.push(spans_of(text, tokens.classes));
+    }
+    return out;
+}
+
+List<MDV_model.Span> spans_of(str text, List<int> classes) {
+    List<MDV_model.Span> out = [];
+    int size = text.size();
+    int start = 0;
+    while (start < size) {
+        int class_value = 0;
+        if (start < classes.size()) {
+            class_value = classes[start];
+        }
+        int stop = start + 1;
+        while (stop < size) {
+            int other = 0;
+            if (stop < classes.size()) {
+                other = classes[stop];
+            }
+            // Never cut inside a UTF-8 sequence.
+            if (other != class_value && (text.byte_at(stop) & 192) != 128) {
+                break;
+            }
+            stop = stop + 1;
+        }
+        int bits = MDV_model.BLOCK;
+        if (class_value > 0) {
+            bits = bits | MDV_model.syntax_style(class_value);
+        }
+        out.push(MDV_model.Span(text.substr(start, stop), style: bits));
+        start = stop;
+    }
+    return out;
+}

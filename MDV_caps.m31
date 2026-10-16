@@ -1,0 +1,81 @@
+// What the terminal can do, as far as the environment says.
+//
+// Nothing is probed: a query has to be answered through the input stream and
+// macOS Terminal.app prints the payload of a query it does not know, so the
+// decision is made from the variables terminals set about themselves
+// (docs/DESIGN.md, "Capabilities"). A flag can always be overridden on the
+// command line, and every feature has a plain fallback.
+
+import os;
+import tui.core.TUI_style;
+
+pub type Caps {
+    /// OSC 8 hyperlinks.
+    pub bool has_links = false;
+    /// OSC 66 scaled text (the kitty text sizing protocol).
+    pub bool has_scale = false;
+    /// 0 none, 1 the kitty graphics protocol, 2 iTerm2's inline images.
+    pub int images = 0;
+    /// The colour depth to write.
+    pub TUI_style.Depth depth = TUI_style.Depth.Ansi256;
+}
+
+/// A terminal that can do nothing extra.
+pub Caps bare() {
+    return Caps();
+}
+
+/// Is the variable `name` set to something?
+bool is_set(str name) {
+    match (os.env(name)) {
+        case Some(str value): {
+            return value.size() > 0;
+        }
+        case None: {
+            return false;
+        }
+    }
+}
+
+/// Decide from the environment values given (the program passes the real
+/// ones; a test passes made-up ones).
+pub Caps from_values(str term_name, str program, str colorterm, str lc_terminal, bool is_kitty_window, bool is_wezterm, bool is_ghostty, bool is_vte, bool is_windows_terminal, bool is_konsole) {
+    Caps out = Caps();
+    bool is_apple = program == "Apple_Terminal";
+    bool is_dumb = term_name == "linux" || term_name == "dumb" || term_name == "vt100" || term_name == "ansi" || term_name == "";
+    bool is_kitty = is_kitty_window || term_name == "xterm-kitty";
+    bool is_iterm = program == "iTerm.app" || lc_terminal == "iTerm2";
+    if (is_dumb) {
+        out.depth = TUI_style.Depth.Ansi16;
+        return out;
+    }
+    if (is_apple) {
+        // No OSC, DCS or APC: Terminal.app prints what it does not know.
+        out.depth = TUI_style.Depth.Ansi256;
+        return out;
+    }
+    out.has_links = true;
+    if (is_kitty) {
+        out.has_scale = true;
+        out.images = 1;
+    }
+    if (is_ghostty) {
+        out.images = 1;
+    }
+    if (is_iterm || is_wezterm) {
+        out.images = 2;
+    }
+    if (colorterm == "truecolor" || colorterm == "24bit" || is_kitty || is_wezterm || is_ghostty || is_iterm || is_windows_terminal || is_konsole) {
+        out.depth = TUI_style.Depth.TrueColour;
+    } else if (is_vte) {
+        out.depth = TUI_style.Depth.TrueColour;
+    } else if (!term_name.contains("256")) {
+        out.depth = TUI_style.Depth.Ansi16;
+    }
+    return out;
+}
+
+/// The capabilities of the terminal this process runs in.
+pub Caps detect() {
+    return from_values(os.env("TERM").or(""), os.env("TERM_PROGRAM").or(""), os.env("COLORTERM").or(""), os.env("LC_TERMINAL").or(""), is_set("KITTY_WINDOW_ID"), is_set("WEZTERM_EXECUTABLE"), is_set("GHOSTTY_RESOURCES_DIR"), is_set("VTE_VERSION"), is_set("WT_SESSION"), is_set("KONSOLE_VERSION"));
+}

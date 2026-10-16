@@ -5,9 +5,12 @@
 // It reads the viewer and changes nothing but the window height the viewer
 // keeps (so a resize that arrives between two keys is seen).
 
+import MDV_caps;
+import MDV_cat;
 import MDV_model;
 import MDV_theme;
 import MDV_viewer;
+import tui.app.TUI_diff;
 import tui.core.TUI_buffer;
 import tui.core.TUI_geometry;
 import tui.widgets.TUI_menu;
@@ -15,28 +18,61 @@ import tui.core.TUI_style;
 import tui.core.TUI_text;
 import tui.core.TUI_widget;
 
+/// A stretch of the screen the cell buffer cannot describe on its own: a
+/// link (OSC 8) or a scaled heading (OSC 66), drawn over the cells after the
+/// frame.
+type Region {
+    int x;
+    int y;
+    int width;
+    /// The link index, or -1 for a scaled heading.
+    int link;
+    int scale;
+    str text;
+    int style;
+}
+
 pub type Screen {
     pub MDV_viewer.Viewer viewer;
     pub MDV_theme.Theme theme;
+    pub MDV_caps.Caps caps = MDV_caps.bare();
+    /// What to write after the frame's cells: the links and scaled text.
+    pub bytes overlay = [];
+    List<Region> regions = [];
 }
 
 /// `spans` of one row drawn at `x`, `y`: the search hits marked, and the
 /// focused link reversed.
-void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_model.Row row) {
+void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_model.Row row, int last_y) {
     List<MDV_viewer.Hit> row_hits = viewer.hits_between(row_index, row_index + 1);
     int column = x;
     // Byte offset into `row.content()`, which skips decoration.
     int offset = 0;
+    bool is_big = row.big > 0 && y + 1 <= last_y;
     for (MDV_model.Span span in row.spans) {
         TUI_style.Style base = MDV_theme.style_for(theme, span.style);
         if (span.link >= 0 && span.link == viewer.link) {
             base = MDV_theme.focus_style(theme, base);
+        } else if (span.link >= 0 && span.link == viewer.hover_link) {
+            base = base.with_attrs(base.attrs | TUI_style.BOLD);
         }
+        if (is_big && span.has_bits(MDV_model.HEADING) && !span.has_bits(MDV_model.DECO)) {
+            // The cells under a scaled heading hold a placeholder, so the diff
+            // sees them change when the heading moves; the heading itself is
+            // written over them after the frame.
+            int wide = 2 * TUI_text.width(span.text);
+            buffer.fill(TUI_geometry.Rect(column, y, wide, 2), "\u{2800}", base);
+            regions.push(Region(column, y, wide, -1, row.big, span.text, base.pack()));
+            column = column + wide;
+            continue;
+        }
+        int region_start = column;
         if (span.has_bits(MDV_model.DECO) || row_hits.size() == 0) {
             column = column + buffer.set_str(column, y, span.text, base);
             if (!span.has_bits(MDV_model.DECO)) {
                 offset = offset + span.text.size();
             }
+            note_link(span, region_start, column, y);
             continue;
         }
         // Cut the span wherever a hit starts or ends inside it.
@@ -68,6 +104,15 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
             from = upto;
         }
         offset = offset + length;
+        note_link(span, region_start, column, y);
+    }
+}
+
+/// Remember that columns `first` up to `stop` of row `y` are a link the
+/// terminal should know about.
+void Screen.note_link(MDV_model.Span span, int first, int stop, int y) {
+    if (caps.has_links && span.link >= 0 && span.has_bits(MDV_model.LINK) && stop > first && MDV_cat.is_openable(viewer.layout.links[span.link].href)) {
+        regions.push(Region(first, y, stop - first, span.link, 0, "", 0));
     }
 }
 
@@ -88,13 +133,13 @@ void Screen.draw_status(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     int y = area.y + area.height - 1;
     TUI_style.Style style = MDV_theme.status_style(theme);
     buffer.fill(TUI_geometry.Rect(area.x, y, area.width, 1), " ", style);
-    str right = count_text(viewer) + str(viewer.percent()) + "%";
+    str right = count_text(viewer) + "Preview  " + str(viewer.percent()) + "%";
     if (viewer.total() > 0) {
         int bottom = viewer.top + viewer.height();
         if (bottom > viewer.total()) {
             bottom = viewer.total();
         }
-        right = count_text(viewer) + str(bottom) + "/" + str(viewer.total()) + " " + str(viewer.percent()) + "%";
+        right = count_text(viewer) + "Preview  " + str(bottom) + "/" + str(viewer.total()) + "  " + str(viewer.percent()) + "%";
     }
     int right_width = TUI_text.width(right);
     str left = "";
@@ -105,6 +150,8 @@ void Screen.draw_status(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         case Normal: {
             if (viewer.message.size() > 0) {
                 left = viewer.message;
+            } else if (viewer.hover_link >= 0) {
+                left = viewer.layout.links[viewer.hover_link].href;
             } else if (viewer.link >= 0) {
                 left = viewer.layout.links[viewer.link].href;
             } else {
@@ -183,20 +230,193 @@ void Screen.draw_help(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     menu.render(buffer, area);
 }
 
+/// The top row: the outline button, the breadcrumb of headings above the
+/// window, and on the right the mode and the theme button.
+void Screen.draw_header(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    int y = area.y;
+    TUI_style.Style bar = MDV_theme.status_style(theme);
+    TUI_style.Style quiet = MDV_theme.quiet_style(theme);
+    TUI_style.Style accent = MDV_theme.accent_style(theme);
+    buffer.fill(TUI_geometry.Rect(area.x, y, area.width, 1), " ", bar);
+    viewer.buttons = [];
+    int column = area.x;
+    TUI_style.Style side_button = bar;
+    if (viewer.is_side_open) {
+        side_button = accent;
+    }
+    column = column + buffer.set_str(column, y, " \u{2630} ", side_button);
+    viewer.buttons.push(MDV_viewer.Button(0, column, MDV_viewer.BUTTON_SIDE));
+    column = column + 1;
+    str label = " " + theme.name + " ";
+    int label_width = TUI_text.width(label) + 2;
+    int room = area.width - column - label_width - 8;
+    List<str> crumbs = viewer.crumbs();
+    if (crumbs.size() == 0) {
+        buffer.set_str(column, y, TUI_text.truncate(viewer.name, room), bar.with_attrs(bar.attrs | TUI_style.BOLD));
+    } else {
+        int used = 0;
+        for (int index in 0 .. crumbs.size()) {
+            if (index > 0 && used + 3 < room) {
+                used = used + buffer.set_str(column + used, y, " \u{203a} ", quiet);
+            }
+            int left_over = room - used;
+            if (left_over < 2) {
+                break;
+            }
+            TUI_style.Style piece = bar;
+            if (index + 1 == crumbs.size()) {
+                piece = bar.with_attrs(bar.attrs | TUI_style.BOLD);
+            }
+            used = used + buffer.set_str(column + used, y, TUI_text.truncate(crumbs[index], left_over), piece);
+        }
+    }
+    int start = area.x + area.width - label_width - 1;
+    if (start > column) {
+        buffer.set_str(start, y, "\u{25d0}" + label, accent);
+        viewer.buttons.push(MDV_viewer.Button(start - area.x, area.width, MDV_viewer.BUTTON_THEME));
+    }
+}
+
+/// The docked outline: every heading, indented by level, the one the window
+/// is in marked; a click on a row goes there.
+void Screen.draw_side(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    int wide = viewer.side_width();
+    if (wide == 0) {
+        return;
+    }
+    int height = viewer.height();
+    TUI_style.Style style = MDV_theme.side_style(theme);
+    buffer.fill(TUI_geometry.Rect(area.x, area.y + 1, wide, height), " ", style);
+    TUI_style.Style rule = MDV_theme.thumb_style(theme, false);
+    for (int line in 0 .. height) {
+        buffer.set_str(area.x + wide - 1, area.y + 1 + line, "\u{2502}", rule);
+    }
+    int current = viewer.heading_at(viewer.top);
+    // Scroll the list so the current heading is on screen.
+    if (current >= 0) {
+        if (current < viewer.side_top) {
+            viewer.side_top = current;
+        }
+        if (current >= viewer.side_top + height) {
+            viewer.side_top = current - height + 1;
+        }
+    }
+    int count = viewer.layout.headings.size();
+    if (viewer.side_top > count - 1) {
+        viewer.side_top = 0;
+    }
+    for (int line in 0 .. height) {
+        int index = viewer.side_top + line;
+        if (index >= count) {
+            break;
+        }
+        MDV_model.Heading head = viewer.layout.headings[index];
+        int pad = 2 * (head.level - 1);
+        if (pad > wide / 2) {
+            pad = wide / 2;
+        }
+        TUI_style.Style entry = style;
+        str mark = "  ";
+        if (index == current) {
+            entry = MDV_theme.accent_style(theme);
+            mark = "\u{25b8} ";
+            buffer.fill(TUI_geometry.Rect(area.x, area.y + 1 + line, wide - 1, 1), " ", entry);
+        } else if (head.level == 1) {
+            entry = style.with_attrs(style.attrs | TUI_style.BOLD);
+        }
+        int room = wide - 1 - pad - 2;
+        buffer.set_str(area.x + pad, area.y + 1 + line, mark + TUI_text.truncate(head.text, room), entry);
+    }
+}
+
+/// A one-column scrollbar at the right edge: the thumb is the window.
+void Screen.draw_scrollbar(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
+    int height = viewer.height();
+    int x = area.x + area.width - 1;
+    int total = viewer.total();
+    int thumb = height;
+    int start = 0;
+    if (total > height) {
+        thumb = height * height / total;
+        if (thumb < 1) {
+            thumb = 1;
+        }
+        int travel = height - thumb;
+        if (viewer.max_top() > 0) {
+            start = viewer.top * travel / viewer.max_top();
+        }
+    }
+    for (int line in 0 .. height) {
+        bool is_thumb = line >= start && line < start + thumb;
+        str glyph = "\u{2502}";
+        if (is_thumb) {
+            glyph = "\u{2503}";
+        }
+        buffer.set_str(x, area.y + 1 + line, glyph, MDV_theme.thumb_style(theme, is_thumb));
+    }
+}
+
+/// The cells of columns `x` up to `x + width` of row `y`, read back out of
+/// the finished frame as bytes.
+void Screen.cells(bytes out, TUI_buffer.Buffer buffer, int x, int y, int width) {
+    int pen = TUI_style.RESET_STYLE;
+    for (int column in x .. x + width) {
+        TUI_buffer.Cell cell = buffer.get(column, y);
+        if (cell.width == 0) {
+            continue;
+        }
+        int target = cell.style.pack();
+        TUI_style.sgr(out, pen, target, caps.depth);
+        pen = target;
+        out.extend(cell.symbol.to_bytes());
+    }
+    if (pen != TUI_style.RESET_STYLE) {
+        TUI_style.push_reset(out);
+    }
+}
+
+/// Write the links and scaled headings over the finished frame.
+void Screen.build_overlay(TUI_buffer.Buffer buffer) {
+    bytes out = [];
+    for (Region region in regions) {
+        TUI_diff.move_to(out, region.x, region.y);
+        if (region.link >= 0) {
+            out.extend(MDV_cat.link_sequence(region.link, viewer.layout.links[region.link].href).to_bytes());
+            cells(out, buffer, region.x, region.y, region.width);
+            out.extend(MDV_cat.link_sequence(0, "").to_bytes());
+        } else {
+            TUI_style.sgr(out, TUI_style.RESET_STYLE, region.style, caps.depth);
+            out.extend(MDV_cat.scaled_sequence(region.scale, region.text).to_bytes());
+            TUI_style.push_reset(out);
+        }
+    }
+    overlay = out;
+}
+
 pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     if (area.is_empty()) {
         return;
     }
+    if (viewer.new_theme.size() > 0) {
+        theme = MDV_theme.next_after(theme);
+        viewer.new_theme = "";
+    }
+    regions = [];
     viewer.resize(area.width, area.height);
+    buffer.fill(area, " ", MDV_theme.base_style(theme));
     int height = viewer.height();
     int x = area.x + viewer.left();
+    int last_y = area.y + height;
     for (int line in 0 .. height) {
         int index = viewer.top + line;
         if (index >= viewer.total()) {
             break;
         }
-        draw_row(buffer, x, area.y + line, index, viewer.layout.rows[index]);
+        draw_row(buffer, x, area.y + 1 + line, index, viewer.layout.rows[index], last_y);
     }
+    draw_side(buffer, area);
+    draw_scrollbar(buffer, area);
+    draw_header(buffer, area);
     draw_status(buffer, area);
     match (viewer.mode) {
         case Outline: {
@@ -210,6 +430,7 @@ pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         case Search: {
         }
     }
+    build_overlay(buffer);
 }
 
 str count_text(MDV_viewer.Viewer viewer) {

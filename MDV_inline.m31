@@ -9,7 +9,7 @@
 // the oracle test compares against.
 //
 // The upstream change that would make this module unnecessary is an inline
-// AST (docs/design.md, "What term-markdown would need").
+// AST (docs/DESIGN.md, "What term-markdown would need").
 
 import MDV_model;
 
@@ -263,6 +263,10 @@ void Reader.add_image(Tag tag) {
     spans.push(MDV_model.Span("[image: ", style: mark, link: target));
     spans.push(MDV_model.Span(alt, style: base_style | MDV_model.IMAGE | MDV_model.LINK, link: target));
     spans.push(MDV_model.Span("]", style: mark, link: target));
+    str source = tag.attributes.get("src").or("");
+    if (source.size() > 0) {
+        spans.push(MDV_model.Span(" " + source, style: base_style | MDV_model.DECO | MDV_model.IMAGE | MDV_model.FOOT, link: target));
+    }
 }
 
 /// The styled spans of `html`, an inline fragment as `MD_inlines.render`

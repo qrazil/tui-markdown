@@ -16,7 +16,9 @@ import MDV_keys;
 import MDV_layout;
 import MDV_model;
 import MDV_prepare;
+import MDV_theme;
 import term;
+import tui.core.TUI_text;
 import tui.app.TUI_app;
 import tui.widgets.TUI_outline;
 
@@ -28,7 +30,20 @@ pub enum Request {
     Open(str);
     /// Put this text on the system clipboard (OSC 52).
     Copy(str);
+    /// Hand this URL to the system's opener (`xdg-open`, `open`).
+    OpenUrl(str);
 }
+
+/// A clickable region of the header row: columns `first` up to `stop`, and
+/// what a click does (1 toggles the outline sidebar, 2 changes the theme).
+pub type Button {
+    pub int first;
+    pub int stop;
+    pub int action;
+}
+
+pub const int BUTTON_SIDE = 1;
+pub const int BUTTON_THEME = 2;
 
 /// What the keys mean at the moment.
 pub enum Mode {
@@ -57,6 +72,8 @@ pub type Hit {
 }
 
 pub const int MAX_TEXT_WIDTH = 100;
+/// The sidebar's widest, in columns.
+pub const int SIDE_WIDTH = 32;
 pub const int MIN_TEXT_WIDTH = 8;
 /// Columns left empty on each side of the text.
 pub const int MARGIN = 1;
@@ -99,14 +116,43 @@ pub type Viewer {
     pub List<Place> pending_place = [];
     /// Was a place pushed for the `Open` that is under way?
     pub bool did_push = false;
+    /// The widest the text gets, 0 for the whole window.
+    pub int max_width = MAX_TEXT_WIDTH;
+    pub bool is_scaled = false;
+    pub bool is_zebra = false;
+    pub bool has_numbers = false;
+    /// Is the outline docked at the left?
+    pub bool is_side_open = false;
+    /// Where the header's buttons are, set by the screen on every frame.
+    pub List<Button> buttons = [];
+    /// The link under the pointer, -1 for none.
+    pub int hover_link = -1;
+    /// Is the scrollbar being dragged?
+    pub bool is_dragging = false;
+    /// A theme the screen should switch to ("" for none).
+    pub str new_theme = "";
+    /// First heading shown in the sidebar.
+    pub int side_top = 0;
 }
 
 /// Rows of text on screen: all but the status line.
 pub int Viewer.height() {
-    if (rows < 2) {
+    if (rows < 3) {
         return 1;
     }
-    return rows - 1;
+    return rows - 2;
+}
+
+/// Columns of the sidebar (0 when it is closed or the window too narrow).
+pub int Viewer.side_width() {
+    if (!is_side_open || columns < 50) {
+        return 0;
+    }
+    int wide = columns / 3;
+    if (wide > SIDE_WIDTH) {
+        wide = SIDE_WIDTH;
+    }
+    return wide;
 }
 
 pub int Viewer.total() {
@@ -121,14 +167,33 @@ pub int Viewer.max_top() {
     return most;
 }
 
-/// Where the text starts on screen, so it is centred when the screen is wider
-/// than the longest line.
+/// Where the text starts on screen: past the sidebar, centred in what is
+/// left when that is wider than the longest line.
 pub int Viewer.left() {
-    int spare = columns - layout.width;
+    int side = side_width();
+    int spare = columns - side - 1 - layout.width;
     if (spare < 2 * MARGIN) {
-        return MARGIN;
+        return side + MARGIN;
     }
-    return spare / 2;
+    return side + spare / 2;
+}
+
+/// The layout of `doc` for the window as it is.
+MDV_model.Layout Viewer.build_layout() {
+    return MDV_layout.layout_with(doc, MDV_layout.Options(text_width(), is_scaled: is_scaled, is_zebra: is_zebra, has_numbers: has_numbers));
+}
+
+/// Columns the text gets: the window less the sidebar, the scrollbar and the
+/// margins, capped at `max_width`.
+pub int Viewer.text_width() {
+    int width = columns - side_width() - 1 - 2 * MARGIN;
+    if (max_width > 0 && width > max_width) {
+        width = max_width;
+    }
+    if (width < MIN_TEXT_WIDTH) {
+        width = MIN_TEXT_WIDTH;
+    }
+    return width;
 }
 
 void Viewer.scroll_to(int target) {
@@ -215,9 +280,9 @@ int Viewer.line_here() {
 }
 
 /// Lay the document out again for the current width, keeping the place.
-void Viewer.relayout() {
+pub void Viewer.relayout() {
     Anchor anchor = anchor_here();
-    layout = MDV_layout.layout(doc, text_width_for(columns));
+    layout = build_layout();
     scroll_to(row_of_anchor(anchor));
     if (link >= layout.links.size()) {
         link = -1;
@@ -229,7 +294,7 @@ void Viewer.relayout() {
 pub void Viewer.resize(int new_columns, int new_rows) {
     columns = new_columns;
     rows = new_rows;
-    if (text_width_for(new_columns) != layout.width) {
+    if (text_width() != layout.width) {
         relayout();
     } else {
         scroll_to(top);
@@ -242,7 +307,7 @@ pub void Viewer.load(str path, str text) {
     name = path;
     source = text;
     doc = MDV_prepare.prepare(text);
-    layout = MDV_layout.layout(doc, text_width_for(columns));
+    layout = build_layout();
     top = 0;
     link = -1;
     mode = Mode.Normal;
@@ -281,7 +346,7 @@ pub void Viewer.refresh(str text) {
     int old_link = link;
     source = text;
     doc = MDV_prepare.prepare(text);
-    layout = MDV_layout.layout(doc, text_width_for(columns));
+    layout = build_layout();
     scroll_to(layout.row_of_line(line));
     if (old_link < layout.links.size()) {
         link = old_link;
@@ -807,6 +872,12 @@ TUI_app.Action Viewer.normal_key(str key_name) {
     } else if (key_name == "o") {
         count = 0;
         open_outline();
+    } else if (key_name == "b") {
+        toggle_side();
+        count = 0;
+    } else if (key_name == "t") {
+        new_theme = "next";
+        count = 0;
     } else if (key_name == "tab") {
         next_link(1);
         count = 0;
@@ -891,6 +962,178 @@ pub TUI_app.Action Viewer.press(List<str> keys) {
     return last;
 }
 
+/// Show or hide the sidebar and lay the text out again for what is left.
+pub void Viewer.toggle_side() {
+    is_side_open = !is_side_open;
+    relayout();
+}
+
+/// The heading whose section the row `row` is in: the last heading at or
+/// above it, -1 before the first.
+pub int Viewer.heading_at(int row) {
+    int found = -1;
+    for (int index in 0 .. layout.headings.size()) {
+        if (layout.headings[index].row <= row) {
+            found = index;
+        }
+    }
+    return found;
+}
+
+/// The headings above the top of the window, outermost first: where the
+/// reader is, as the header's breadcrumb shows it.
+pub List<str> Viewer.crumbs() {
+    List<str> out = [];
+    List<int> levels = [];
+    int current = heading_at(top);
+    if (current < 0) {
+        return out;
+    }
+    int index = current;
+    int limit = 7;
+    while (index >= 0) {
+        MDV_model.Heading head = layout.headings[index];
+        if (head.level < limit) {
+            out.insert(0, head.text);
+            levels.insert(0, head.level);
+            limit = head.level;
+        }
+        index = index - 1;
+    }
+    return out;
+}
+
+/// The link under the cell at column `x` of document row `row`, -1 for none.
+pub int Viewer.link_at(int row, int x) {
+    if (row < 0 || row >= layout.rows.size()) {
+        return -1;
+    }
+    int column = left();
+    for (MDV_model.Span span in layout.rows[row].spans) {
+        int wide = TUI_text.width(span.text);
+        if (x >= column && x < column + wide) {
+            if (span.link >= 0 && span.has_bits(MDV_model.LINK)) {
+                return span.link;
+            }
+            return -1;
+        }
+        column = column + wide;
+    }
+    return -1;
+}
+
+void Viewer.click_link(int target) {
+    str href = layout.links[target].href;
+    link = target;
+    if (is_external(href)) {
+        requests.push(Request.OpenUrl(href));
+        message = "opening " + href;
+        return;
+    }
+    follow(href);
+}
+
+void Viewer.drag_to(int y) {
+    int track = height();
+    if (track < 2 || max_top() == 0) {
+        return;
+    }
+    int along = y - 1;
+    if (along < 0) {
+        along = 0;
+    }
+    if (along > track - 1) {
+        along = track - 1;
+    }
+    scroll_to(along * max_top() / (track - 1));
+}
+
+/// One mouse report (1-based `col` and `row`): the wheel scrolls, a click in
+/// the header presses a button, in the sidebar jumps to a heading, on the
+/// scrollbar moves the window, on a link follows it; motion shows the link
+/// under the pointer.
+pub TUI_app.Action Viewer.mouse(term.Mouse report) {
+    int x = report.col - 1;
+    int y = report.row - 1;
+    message = "";
+    match (report.kind) {
+        case ScrollUp: {
+            scroll_to(top - 3);
+            return TUI_app.Action.Redraw;
+        }
+        case ScrollDown: {
+            scroll_to(top + 3);
+            return TUI_app.Action.Redraw;
+        }
+        case Down(int button): {
+            if (button != 0) {
+                return TUI_app.Action.Continue;
+            }
+            if (y == 0) {
+                for (Button each in buttons) {
+                    if (x >= each.first && x < each.stop) {
+                        if (each.action == BUTTON_SIDE) {
+                            toggle_side();
+                        } else if (each.action == BUTTON_THEME) {
+                            new_theme = "next";
+                        }
+                    }
+                }
+                return TUI_app.Action.Redraw;
+            }
+            if (y > height()) {
+                return TUI_app.Action.Redraw;
+            }
+            if (x == columns - 1) {
+                is_dragging = true;
+                drag_to(y);
+                return TUI_app.Action.Redraw;
+            }
+            if (x < side_width()) {
+                int index = side_top + y - 1;
+                if (index >= 0 && index < layout.headings.size()) {
+                    back.push(place_here());
+                    scroll_to(layout.headings[index].row);
+                }
+                return TUI_app.Action.Redraw;
+            }
+            int target = link_at(top + y - 1, x);
+            if (target >= 0) {
+                click_link(target);
+            }
+            return TUI_app.Action.Redraw;
+        }
+        case Drag(int dragged): {
+            if (is_dragging) {
+                drag_to(y);
+                return TUI_app.Action.Redraw;
+            }
+            return TUI_app.Action.Continue;
+        }
+        case Up(int released): {
+            is_dragging = false;
+            return TUI_app.Action.Continue;
+        }
+        case Moved: {
+            int over = -1;
+            if (y >= 1 && y <= height() && x >= side_width() && x < columns - 1) {
+                over = link_at(top + y - 1, x);
+            }
+            if (over != hover_link) {
+                hover_link = over;
+                return TUI_app.Action.Redraw;
+            }
+            return TUI_app.Action.Continue;
+        }
+        case ScrollLeft: {
+            return TUI_app.Action.Continue;
+        }
+        case ScrollRight: {
+            return TUI_app.Action.Continue;
+        }
+    }
+}
+
 /// A viewer showing `text` (the contents of `name`) in a terminal of `columns` x
 /// `rows`.
 pub Viewer open(List<str> files, str name, str text, int columns, int rows) {
@@ -899,8 +1142,9 @@ pub Viewer open(List<str> files, str name, str text, int columns, int rows) {
     return Viewer(files, name, text, doc, layout, columns, rows);
 }
 
+/// The text width of a window of `columns` with the defaults.
 pub int text_width_for(int columns) {
-    int width = columns - 2 * MARGIN;
+    int width = columns - 1 - 2 * MARGIN;
     if (width > MAX_TEXT_WIDTH) {
         width = MAX_TEXT_WIDTH;
     }
@@ -1003,3 +1247,5 @@ List<TUI_outline.Node> outline_nodes(List<MDV_model.Heading> headings, Cursor cu
 }
 
 // --- keys -------------------------------------------------------------------------------------
+
+// --- the mouse --------------------------------------------------------------------------------
