@@ -157,11 +157,20 @@ is `Ctrl-R` (`Ctrl-H` also works on a terminal speaking the CSI-u protocol),
 italic and the heading levels are on `Alt`. Soft wrap is always on in the
 editing panes (a wrapped row is a row; horizontal scrolling was not done).
 
+### Measured (14,000 lines, 2,000 sections, -O1 test build, one core)
+
+Open and lay out Preview 185 ms; switch to Source 146 ms; a keystroke in
+Source 124 ms (the whole source layout is rebuilt: only the highlight is
+incremental); the first switch to Live 2.7 s (every block laid out once, then
+cached), a keystroke in Live 96 ms. Comfortable to about 1,500 lines; beyond
+that the per-keystroke rebuild needs to become per-line. Not done.
+
 ### What is not done
 
 - Real terminals were not available to the author: every behaviour is tested
   through a pty with an emulator and SGR 1006 mouse reports (`tests/pty_e2e.py`),
   not in kitty, iTerm2, Ghostty or Terminal.app.
+- Phase C (inline images, polish) was not started.
 - No incremental parse: Preview and Live re-run the whole markdown parser
   after a structural edit.
 - The find bar highlights hits on rows (Source rows, rendered text), not
