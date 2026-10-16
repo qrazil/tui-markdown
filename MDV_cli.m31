@@ -18,7 +18,7 @@ import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
 /// Keep in step with `version` in the `deps` file.
-pub const str VERSION = "0.4.0";
+pub const str VERSION = "0.5.0";
 /// What `--theme` accepts, as the usage error lists them.
 const str THEME_NAMES = "dark, light, tokyonight, nightfox, gruvbox-material, plain";
 
