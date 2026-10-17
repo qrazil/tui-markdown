@@ -81,7 +81,8 @@ for spelling in "--c --w 40" "--cat --width=40" "--c --width 40" "--cat --w 40";
 done
 run --cat --width 20 --theme plain tour.md
 [ "$out" != "$ref" ] && note "a different --width changes the layout" || bad "--width ignored"
-wide=$(printf '%s\n' "$out" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+# characters, not bytes: BSD awk's length() counts bytes whatever the locale
+wide=$(printf '%s\n' "$out" | python3 -c 'import sys; print(max([len(l.rstrip("\n")) for l in sys.stdin] or [0]))')
 [ "$wide" -le 20 ] && note "--width 20: no line is wider than 20" || bad "--width 20: a line has $wide columns"
 run --cat --width 40 --theme dark tour.md
 [ "$(escapes "$out")" -gt 0 ] && note "--theme dark is coloured" || bad "--theme dark has no escapes"
