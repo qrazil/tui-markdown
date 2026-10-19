@@ -11,7 +11,6 @@ import MDV_render;
 import MDV_theme;
 import MDV_viewer;
 import date;
-import encoding.base64;
 import fs;
 import io;
 import os;
@@ -21,8 +20,8 @@ import tui.app.TUI_app;
 
 /// The name shown for text that came from standard input.
 pub const str STDIN_NAME = "<stdin>";
-/// Longest text put in one OSC 52 sequence. Terminals cap the payload (xterm
-/// at 100000 bytes of base64); this stays under that.
+/// Longest text put in one OSC 52 sequence (`Loop.copy_limit`). Terminals cap
+/// the payload (xterm at 100000 bytes of base64); this stays under that.
 pub const int MAX_COPY = 60000;
 
 /// The text of `path`. Bytes that are not UTF-8 are read as Latin-1, so a
@@ -53,27 +52,6 @@ pub Result<str, io.Error> read_stdin() {
     io.File input = io.stdin();
     bytes raw = input.read_all()?;
     return Result<str, io.Error>.Ok(text_of(raw));
-}
-
-/// OSC 52: ask the terminal to put `text` on the system clipboard.
-pub bytes copy_sequence(str text) {
-    str shown = text;
-    if (shown.size() > MAX_COPY) {
-        List<int> chars = shown.chars();
-        List<int> kept = [];
-        int used = 0;
-        for (int each in chars) {
-            int width = str.from_chars([each]).size();
-            if (used + width > MAX_COPY) {
-                break;
-            }
-            used = used + width;
-            kept.push(each);
-        }
-        shown = str.from_chars(kept);
-    }
-    str out = "\x1b]52;c;" + base64.encode(shown.to_bytes()) + "\x07";
-    return out.to_bytes();
 }
 
 /// What `stat` says about `path` as one comparable string, "" when it cannot.
@@ -209,7 +187,7 @@ void App.open_url(str url) {
         case Err(proc.Error error): {
         }
     }
-    loop.queue_output(copy_sequence(url));
+    loop.copy(url);
     viewer.message = "could not open, copied " + url;
 }
 
@@ -224,7 +202,7 @@ pub void App.serve() {
                 open_file(path);
             }
             case Copy(str text): {
-                loop.queue_output(copy_sequence(text));
+                loop.copy(text);
                 copy_system(text);
             }
             case OpenUrl(str url): {

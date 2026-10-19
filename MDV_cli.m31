@@ -258,6 +258,7 @@ TUI_app.Loop make_loop(MDV_caps.Caps caps) {
     loop.tick_ms = ESCAPE_WAIT_MS;
     loop.animate_ms = WATCH_MS;
     loop.drain_events = 0;
+    loop.copy_limit = MDV_app.MAX_COPY;
     loop.enter = loop.enter + term.MOUSE_ON + TUI_mouse.HOVER_ON;
     loop.leave = TUI_mouse.HOVER_OFF + term.MOUSE_OFF + loop.leave;
     loop.should_report_paste = true;
