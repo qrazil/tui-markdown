@@ -33,6 +33,7 @@ args.Parser parser() {
     cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
     cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (kitty)", placeholder: "MODE");
     cli.value("links", help: "OSC 8 hyperlinks: on, off or auto", placeholder: "MODE");
+    cli.value("sync", help: "synchronized output (DEC 2026, asked of the terminal first): on, off or auto", placeholder: "MODE");
     cli.value("colors", help: "16, 256 or 24bit (default: from the terminal)", placeholder: "DEPTH");
     cli.flag("zebra", help: "shade alternate table rows");
     cli.flag("numbers", help: "line numbers in code blocks");
@@ -135,6 +136,17 @@ MDV_caps.Caps pick_caps(args.Parsed given, bool is_screen) {
     match (given.value("links")) {
         case Some(str mode): {
             caps.has_links = mode == "on";
+        }
+        case None: {
+        }
+    }
+    match (given.value("sync")) {
+        case Some(str mode): {
+            if (mode == "on") {
+                caps.has_sync = true;
+            } else if (mode == "off") {
+                caps.has_sync = false;
+            }
         }
         case None: {
         }
@@ -262,6 +274,7 @@ TUI_app.Loop make_loop(MDV_caps.Caps caps) {
     loop.enter = loop.enter + term.MOUSE_ON + TUI_mouse.HOVER_ON;
     loop.leave = TUI_mouse.HOVER_OFF + term.MOUSE_OFF + loop.leave;
     loop.should_report_paste = true;
+    loop.should_sync = caps.has_sync;
     return loop;
 }
 
@@ -321,7 +334,7 @@ str refuse_values(args.Parsed given) {
         case None: {
         }
     }
-    List<str> switches = ["scale", "links"];
+    List<str> switches = ["scale", "links", "sync"];
     for (str name in switches) {
         match (given.value(name)) {
             case Some(str mode): {

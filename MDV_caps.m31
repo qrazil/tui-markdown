@@ -12,6 +12,10 @@ import tui.core.TUI_style;
 pub type Caps {
     /// OSC 8 hyperlinks.
     pub bool has_links = false;
+    /// Synchronized output (DEC mode 2026): the loop asks the terminal and uses
+    /// it only when it answers. A query is written, so it is only asked of a
+    /// terminal that is known to drop what it does not know.
+    pub bool has_sync = false;
     /// OSC 66 scaled text (the kitty text sizing protocol).
     pub bool has_scale = false;
     /// 0 none, 1 the kitty graphics protocol, 2 iTerm2's inline images.
@@ -55,6 +59,7 @@ pub Caps from_values(str term_name, str program, str colorterm, str lc_terminal,
         return out;
     }
     out.has_links = true;
+    out.has_sync = true;
     if (is_kitty) {
         out.has_scale = true;
         out.images = 1;

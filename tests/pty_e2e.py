@@ -55,6 +55,10 @@ class Screen:
         self.scaled = []
         self.leave_seen = False
         self.pending = b""
+        # DEC mode 2026: asked (`$p`), and answered only when `answer_sync`.
+        self.answer_sync = False
+        self.sync_asked = 0
+        self.replies = []
 
     def resize(self, rows, cols):
         self.rows = rows
@@ -138,6 +142,10 @@ class Screen:
 
     def csi(self, params, final):
         if params.startswith("?"):
+            if final == "p" and params == "?2026$":
+                self.sync_asked += 1
+                if self.answer_sync:
+                    self.replies.append(b"\x1b[?2026;2$y")
             if final == "l" and "1049" in params:
                 self.leave_seen = True
             return
@@ -196,8 +204,10 @@ KEYS = {
 
 
 class Session:
-    def __init__(self, binary, args, env=None, cwd=None, stdin_data=None, rows=24, cols=80):
+    def __init__(self, binary, args, env=None, cwd=None, stdin_data=None, rows=24, cols=80, answer_sync=False):
         self.screen = Screen(rows, cols)
+        self.screen.answer_sync = answer_sync
+        self.raw = b""
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         e = dict(os.environ)
@@ -229,7 +239,10 @@ class Session:
             if not chunk:
                 break
             got = True
+            self.raw += chunk
             self.screen.feed(chunk)
+            while self.screen.replies:
+                os.write(self.master, self.screen.replies.pop(0))
             timeout = 0.08
         return got
 
@@ -597,6 +610,31 @@ def main():
     s.finish()
     s = Session(binary, [tour], env={"TERM_PROGRAM": "Apple_Terminal"})
     check("no OSC 8 or OSC 66 on Terminal.app", not s.screen.linkmap and not s.screen.scaled)
+    s.send("q")
+    s.finish()
+
+    # --- synchronized output (DEC 2026) ----------------------------------------------------
+    s = Session(binary, [tour])
+    check("sync: the terminal is asked once", s.screen.sync_asked == 1, str(s.screen.sync_asked))
+    s.send("j")
+    check("sync: a terminal that does not answer gets plain frames", b"\x1b[?2026h" not in s.raw, repr(s.raw[-200:]))
+    s.send("q")
+    s.finish()
+    s = Session(binary, [tour], answer_sync=True)
+    mark = len(s.raw)
+    s.send("j")
+    frame = s.raw[mark:]
+    check("sync: a frame is inside the markers once the terminal answered", frame.startswith(b"\x1b[?2026h") and frame.endswith(b"\x1b[?2026l") and frame.count(b"\x1b[?2026h") == 1, repr(frame[:40]) + " ... " + repr(frame[-40:]))
+    check("sync: the screen is right", "The Tour" in s.top(), s.text())
+    s.send("q")
+    s.finish()
+    check("sync: leaving ends it before the screen goes", b"\x1b[?2026l" in s.raw[s.raw.rfind(b"\x1b[?1049l") - 200 :], repr(s.raw[-120:]))
+    s = Session(binary, ["--sync", "off", tour])
+    check("sync: --sync off asks nothing", s.screen.sync_asked == 0 and b"2026" not in s.raw, repr(s.raw[:80]))
+    s.send("q")
+    s.finish()
+    s = Session(binary, [tour], env={"TERM_PROGRAM": "Apple_Terminal"})
+    check("sync: Terminal.app is not asked", s.screen.sync_asked == 0)
     s.send("q")
     s.finish()
 
