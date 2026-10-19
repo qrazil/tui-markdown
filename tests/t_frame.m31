@@ -1,0 +1,150 @@
+// What `Screen` hands the loop after a frame (`TUI_app.AfterFrame`): the scaled
+// headings (OSC 66) are in the same bytes as the cells, are answered only when
+// they have to be, and are sent again after a frame whose diff wrote a cell of
+// theirs. No terminal: frames are made by `Screen.render` and composed by
+// `Loop.frame_bytes`, the function `run_with` writes.
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_caps;
+import MDV_render;
+import MDV_theme;
+import MDV_viewer;
+import tui.app.TUI_app;
+import tui.core.TUI_buffer;
+import tui.app.TUI_diff;
+import tui.core.TUI_style;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.check(str name, bool is_true) {
+    if (is_true) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name);
+    }
+}
+
+void Tally.number(str name, int got, int want) {
+    if (got == want) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": got " + str(got) + " want " + str(want));
+    }
+}
+
+const int COLUMNS = 40;
+const int ROWS = 14;
+const str SCALED = "\x1b]66;s=2;Title";
+
+/// The byte offset of `needle` in `text`, -1 for none (compared byte by byte:
+/// a frame holds multi-byte characters, which `substr` will not cut).
+int position(str text, str needle) {
+    int last = text.size() - needle.size();
+    for (int start in 0 .. last + 1) {
+        bool is_here = true;
+        for (int offset in 0 .. needle.size()) {
+            if (text.byte_at(start + offset) != needle.byte_at(offset)) {
+                is_here = false;
+                break;
+            }
+        }
+        if (is_here) {
+            return start;
+        }
+    }
+    return -1;
+}
+
+/// A screen over a document with an H1 (a scaled one when `is_scaled`).
+MDV_render.Screen screen_of(bool is_scaled) {
+    MDV_viewer.Viewer viewer = MDV_viewer.open([], "doc.md", "# Title\n\nfirst paragraph\n\nsecond paragraph\n\n# Again\n\n## Next\n\nline 1\n\nline 2\n\nline 3\n\nline 4\n\nline 5\n\nline 6\n\nline 7\n\nline 8\n\nline 9\n\nline 10\n\nlast one\n", COLUMNS, ROWS);
+    viewer.is_scaled = is_scaled;
+    viewer.resize(COLUMNS, ROWS);
+    viewer.relayout();
+    MDV_render.Screen screen = MDV_render.Screen(viewer, MDV_theme.dark());
+    screen.caps.has_scale = is_scaled;
+    return screen;
+}
+
+TUI_buffer.Buffer draw(MDV_render.Screen screen) {
+    TUI_buffer.Buffer buffer = TUI_buffer.Buffer.sized(COLUMNS, ROWS);
+    screen.render(buffer, buffer.area());
+    return buffer;
+}
+
+TUI_app.Loop loop_of(MDV_render.Screen screen) {
+    TUI_app.Loop loop = TUI_app.Loop(depth: TUI_style.Depth.Ansi256);
+    loop.after_frame = Option<TUI_app.AfterFrame>.Some(screen);
+    return loop;
+}
+
+str frame(TUI_app.Loop loop, TUI_buffer.Buffer previous, TUI_buffer.Buffer next, bool is_full) {
+    return TUI_diff.show(loop.frame_bytes(previous, next, is_full, TUI_app.Shown()));
+}
+
+Tally tally = Tally();
+// The first frame: the heading is in the same write as the cells, after them.
+MDV_render.Screen screen = screen_of(true);
+TUI_app.Loop loop = loop_of(screen);
+TUI_buffer.Buffer blank = TUI_buffer.Buffer.sized(COLUMNS, ROWS);
+TUI_buffer.Buffer first = draw(screen);
+str written = frame(loop, blank, first, true);
+tally.check("first frame: the scaled heading is in the frame's write", written.contains("\\e]66;s=2;Title"));
+tally.check("first frame: the cells of the page are in it too", written.contains("first paragraph"));
+tally.check("first frame: the heading follows the last cell of the page", position(written, "\\e]66;s=2;Title") > position(written, "first paragraph") && position(written, "first paragraph") > 0);
+tally.number("first frame: the loop has queued nothing", loop.take_output().size(), 0);
+// The same frame again: the hook answers nothing and nothing is written.
+TUI_buffer.Buffer same = draw(screen);
+tally.number("an identical frame writes no byte", loop.frame_bytes(first, same, false, TUI_app.Shown()).size(), 0);
+tally.number("and the hook answered nothing", screen.after_frame(same, false).size(), 0);
+// A full frame (a resize, a repaint) says every cell was rewritten: send again.
+TUI_buffer.Buffer again = draw(screen);
+tally.check("is_full: the heading is sent again", frame(loop, same, again, true).contains("\\e]66;s=2;Title"));
+// A change far from the heading: a diff frame with cells and no heading.
+screen.viewer.message = "changed";
+TUI_buffer.Buffer elsewhere = draw(screen);
+str diff_only = frame(loop, again, elsewhere, false);
+tally.check("a change elsewhere: the frame is written", diff_only.size() > 0);
+tally.check("a change elsewhere: the heading is not sent again", !diff_only.contains("\\e]66;"));
+screen.viewer.message = "";
+TUI_buffer.Buffer restored = draw(screen);
+frame(loop, elsewhere, restored, false);
+// The diff writes a cell of the heading's block (a popup over it): sent again.
+screen.viewer.press(["?"]);
+TUI_buffer.Buffer popup = draw(screen);
+str over = frame(loop, restored, popup, false);
+tally.check("a popup over the heading: the heading is sent again after the diff", over.contains("\\e]66;s=2;Title") && position(over, "\\e]66;s=2;Title") > 0);
+screen.viewer.press(["esc"]);
+TUI_buffer.Buffer closed = draw(screen);
+tally.check("the popup closed: the heading is sent again", frame(loop, popup, closed, false).contains("\\e]66;s=2;Title"));
+// It scrolled away: nothing to send, and the page is a diff.
+screen.viewer.press(["G"]);
+TUI_buffer.Buffer scrolled = draw(screen);
+str gone = frame(loop, closed, scrolled, false);
+tally.check("scrolled past the heading: the frame has no OSC 66", gone.size() > 0 && !gone.contains("\\e]66;"));
+// And back: it is not on the screen, so it is sent.
+screen.viewer.press(["g", "g"]);
+TUI_buffer.Buffer top = draw(screen);
+tally.check("scrolled back: the heading is sent", frame(loop, scrolled, top, false).contains("\\e]66;s=2;Title"));
+// A heading that moved is sent at its new place (the second H1 is on screen).
+screen.viewer.press(["j"]);
+TUI_buffer.Buffer moved = draw(screen);
+str moved_frame = frame(loop, top, moved, false);
+tally.check("a heading that moved is sent again, at its new place", moved_frame.contains("\\e]66;s=2;Again"));
+TUI_buffer.Buffer moved_again = draw(screen);
+tally.number("and when it stays there, nothing is", loop.frame_bytes(moved, moved_again, false, TUI_app.Shown()).size(), 0);
+// Scale off: the hook never answers.
+MDV_render.Screen plain = screen_of(false);
+TUI_app.Loop plain_loop = loop_of(plain);
+TUI_buffer.Buffer plain_first = draw(plain);
+tally.check("scale off: no OSC 66 in the first frame", !frame(plain_loop, blank, plain_first, true).contains("\\e]66;"));
+tally.number("scale off: an identical frame writes no byte", plain_loop.frame_bytes(plain_first, draw(plain), false, TUI_app.Shown()).size(), 0);
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

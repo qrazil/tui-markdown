@@ -308,7 +308,7 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
             }
             TUI_app.Loop loop = make_loop(look.caps);
             app.loop = loop;
-            app.screen.loop = loop;
+            loop.after_frame = Option<TUI_app.AfterFrame>.Some(app.screen);
             match (loop.run_with(app.screen, app, app, TUI_app.NoMouse())) {
                 case Ok(int status): {
                     return 0;

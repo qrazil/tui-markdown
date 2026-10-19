@@ -22,8 +22,9 @@ import tui.core.TUI_text;
 import tui.core.TUI_widget;
 
 /// A stretch of the screen the cell buffer cannot describe on its own: a
-/// scaled heading (OSC 66), drawn over the cells after the frame. (A link,
-/// OSC 8, is a property of the cells and is marked with `Buffer.link`.)
+/// scaled heading (OSC 66), drawn over the cells in the same write as the
+/// frame (`Screen.after_frame`). (A link, OSC 8, is a property of the cells and
+/// is marked with `Buffer.link`.)
 type Region {
     int x;
     int y;
@@ -33,14 +34,35 @@ type Region {
     int style;
 }
 
+/// Is `other` the same heading at the same place, in the same style?
+bool Region.is_same(Region other) {
+    return x == other.x && y == other.y && width == other.width && scale == other.scale && text == other.text && style == other.style;
+}
+
+/// Is this region's block of cells (`width` columns, two rows) different in
+/// `now` from what it was in `before`? A cell written over a scaled heading
+/// takes it off the screen, and the diff writes exactly the cells that differ.
+bool Region.is_touched(TUI_buffer.Buffer before, TUI_buffer.Buffer now) {
+    for (int row in y .. y + 2) {
+        for (int column in x .. x + width) {
+            if (now.is_inside(column, row) && !now.is_same_cell(before, column, row)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 pub type Screen {
     pub MDV_viewer.Viewer viewer;
     pub MDV_theme.Theme theme;
     pub MDV_caps.Caps caps = MDV_caps.bare();
-    /// The loop the screen is shown by: the scaled headings (which are not
-    /// cells) are queued on it to be written once the frame is.
-    pub TUI_app.Loop loop = TUI_app.Loop();
+    /// The scaled headings of the frame being drawn.
     List<Region> regions = [];
+    /// The headings the last `after_frame` answer left on the screen, and the
+    /// frame it was asked about: what a later frame is compared with.
+    List<Region> sent = [];
+    TUI_buffer.Buffer seen = TUI_buffer.Buffer.sized(0, 0);
     /// The layout row the caret is on this frame, -1 for none.
     int caret_index = -1;
 }
@@ -686,19 +708,40 @@ void Screen.draw_scrollbar(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// Queue the scaled headings, which are not cells, to be written after the
-/// frame (`Loop.queue_output`: the loop has no hook after a frame).
-void Screen.build_overlay() {
+/// The `TUI_app.AfterFrame` hook: the scaled headings (OSC 66, which are not
+/// cells) go in the same write as the frame, after its cells. A heading is
+/// answered when `is_full` says the screen was rewritten, when it was not on
+/// the screen before (or has moved, or changed), and when the diff wrote a cell
+/// of its block; a frame that leaves the headings where they were answers
+/// nothing, so it is not written at all when no cell changed either.
+pub bytes Screen.after_frame(TUI_buffer.Buffer frame, bool is_full) {
     bytes out = [];
+    if (regions.size() == 0) {
+        sent = [];
+        return out;
+    }
+    bool is_comparable = seen.area().eq(frame.area());
     for (Region region in regions) {
-        TUI_diff.move_to(out, region.x, region.y);
-        TUI_style.sgr(out, TUI_style.RESET_STYLE, region.style, caps.depth);
-        out.extend(MDV_cat.scaled_sequence(region.scale, region.text).to_bytes());
-        TUI_style.push_reset(out);
+        bool is_due = is_full || !is_comparable;
+        if (!is_due) {
+            is_due = true;
+            for (Region old in sent) {
+                if (old.is_same(region)) {
+                    is_due = region.is_touched(seen, frame);
+                    break;
+                }
+            }
+        }
+        if (is_due) {
+            TUI_diff.move_to(out, region.x, region.y);
+            TUI_style.sgr(out, TUI_style.RESET_STYLE, region.style, caps.depth);
+            out.extend(MDV_cat.scaled_sequence(region.scale, region.text).to_bytes());
+            TUI_style.push_reset(out);
+        }
     }
-    if (out.size() > 0) {
-        loop.queue_output(out);
-    }
+    sent = regions;
+    seen = frame.copy();
+    return out;
 }
 
 pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
@@ -758,7 +801,6 @@ pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         case Prompt: {
         }
     }
-    build_overlay();
 }
 
 str count_text(MDV_viewer.Viewer viewer) {
