@@ -36,8 +36,8 @@ tinted header. All of that is plain SGR colour and works everywhere.
 
 | Feature | Facts | Where it works | Decision |
 |---|---|---|---|
-| Kitty text sizing, OSC 66 ([spec](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/)) | `ESC ] 66 ; s=2 ; text ST`: text fills `s*w` x `s` cells. Detect by cursor-position trick (`CSI 6 n` before and after). Erasing or overwriting any cell of a block removes it | kitty >= 0.40, Contour 0.7. Ghostty parses it but does not render ([#10333](https://github.com/ghostty-org/ghostty/issues/10333)); WezTerm no ([#7814](https://github.com/wezterm/wezterm/issues/7814)); foot width only (unverified) | Used for H1 only when the environment says kitty, or with `--scale on`; otherwise the banner band. The terminfo.dev matrix that lists iTerm2/Terminal.app/Ghostty as supporting it contradicts the trackers and is not trusted |
-| OSC 8 hyperlinks ([spec](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)) | `OSC 8 ; id=x ; URI ST ... OSC 8 ; ; ST`; explicit `id` groups a wrapped link; URI bytes 33..126 only; keep under ~2000 bytes | iTerm2, kitty, WezTerm, VTE, Windows Terminal, foot, Alacritty, Ghostty, Konsole (off by default), tmux >= 3.4 with a feature flag ([adoption table](https://github.com/Alhadis/OSC8-Adoption)). **Not Terminal.app**: its parser prints OSC payloads ([Damore, 2025](https://garrett.damore.org/2025/12/macos-terminal-still-missing-mark-apple.html)) | On except Terminal.app and dumb terminals; `--links on|off`. Clicks are also handled by the program (mouse reporting swallows the terminal's own Ctrl-click) |
+| Kitty text sizing, OSC 66 ([spec](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/)) | `ESC ] 66 ; s=2 ; text ST`: text fills `s*w` x `s` cells. Detect by cursor-position trick (`CSI 6 n` before and after). Erasing or overwriting any cell of a block removes it | kitty >= 0.40, Contour 0.7. Ghostty parses it but does not render ([#10333](https://github.com/ghostty-org/ghostty/issues/10333)); WezTerm no ([#7814](https://github.com/wezterm/wezterm/issues/7814)); foot width only (unverified) | Used for H1 only when the environment says kitty (`--scale auto`, the default on a screen), or with `--scale on`; otherwise the banner band. The terminfo.dev matrix that lists iTerm2/Terminal.app/Ghostty as supporting it contradicts the trackers and is not trusted |
+| OSC 8 hyperlinks ([spec](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)) | `OSC 8 ; id=x ; URI ST ... OSC 8 ; ; ST`; explicit `id` groups a wrapped link; URI bytes 33..126 only; keep under ~2000 bytes | iTerm2, kitty, WezTerm, VTE, Windows Terminal, foot, Alacritty, Ghostty, Konsole (off by default), tmux >= 3.4 with a feature flag ([adoption table](https://github.com/Alhadis/OSC8-Adoption)). **Not Terminal.app**: its parser prints OSC payloads ([Damore, 2025](https://garrett.damore.org/2025/12/macos-terminal-still-missing-mark-apple.html)) | On except Terminal.app and dumb terminals (`--links auto`, the default on a screen); `--links on|off`. Clicks are also handled by the program (mouse reporting swallows the terminal's own Ctrl-click) |
 | Inline images | kitty graphics `ESC _ G a=T,f=100,c=,r= ; base64 ST` (PNG straight through, 4096-byte chunks) ([spec](https://sw.kovidgoyal.net/kitty/graphics-protocol/)); iTerm2 `OSC 1337 ; File=inline=1 : base64` ([docs](https://iterm2.com/documentation-images.html)); Sixel needs a quantiser | kitty/Ghostty/Konsole: kitty protocol. iTerm2 and WezTerm: iTerm2 protocol. Sixel: foot, WezTerm, Konsole, iTerm2 ([arewesixelyet](https://www.arewesixelyet.com/)). Never Terminal.app | Chosen from the environment (`MDV_caps`); the image drawing itself is Phase C. Sixel skipped (needs an image encoder, which m31 does not have) |
 | Colour | `COLORTERM=truecolor|24bit` is the signal; kitty, WezTerm, Ghostty, iTerm2, Windows Terminal, Konsole, VTE are truecolor; Terminal.app is from macOS 26 | | Palettes are 24-bit; `TUI_style.sgr` folds to 256 or 16, so no theme needs a second table |
 | Probing (XTGETTCAP, DA1, XTVERSION, DECRQM) | DA1 as a sentinel works everywhere except that Terminal.app prints the payload of DCS/APC/OSC it does not know and does not answer XTVERSION/DECRQM | | **No probing for features that change what is shown** (0.6.0 asks one question, DECRQM for synchronized output, and only of terminals the environment does not mark as Terminal.app or dumb; a terminal that does not answer gets plain frames). Decisions come from `TERM`, `TERM_PROGRAM`, `COLORTERM`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `GHOSTTY_RESOURCES_DIR`, `LC_TERMINAL`, `VTE_VERSION`; every feature has a flag. An over-ssh kitty therefore falls back to the band, which is the safe failure |
@@ -261,7 +261,7 @@ fields back; nothing in `t_viewer.m31` touches a file descriptor.
 
 ## The loop (`MDV_cli`, `MDV_app`)
 
-The program runs on `TUI_app.Loop.run_with` (tui 0.10.0); until 0.6.0 it ran
+The program runs on `TUI_app.Loop.run_with` (tui 0.11.0); until 0.6.0 it ran
 a private copy of the loop, `MDV_loop`, because `Loop.run` had no tick, no
 way to write raw bytes between frames and no escape wait. The settings are
 `MDV_cli.make_loop`:
@@ -274,16 +274,33 @@ way to write raw bytes between frames and no escape wait. The settings are
 - `input_fd: INPUT_AUTO`: when standard input is a pipe, keys are read from the
   terminal standard output is.
 - Mouse reports reach `App.handle` as they came: `should_report_mouse` is off
-  (the loop would route them to a `MouseHandler`) and the modes are put in
-  `enter` and `leave` instead. `drain_events` is 0, so a frame is drawn per
+  (the loop would route them to a `MouseHandler`), `should_report_raw_mouse`
+  and `should_report_hover` are on, and the loop writes and takes off the modes
+  (0.7.0; until then they were put in `enter` and `leave` by hand, and the bytes
+  on the wire are the same). `drain_events` is 0, so a frame is drawn per
   event, as it always was.
-- A copy is `Loop.copy` (OSC 52, `copy_limit` 60000); any other raw bytes are
-  `Loop.queue_output`, written before the next frame.
+- A copy is `Loop.copy` (OSC 52, `copy_limit` 60000). Nothing else is queued.
 - Hyperlinks (OSC 8) are marks on the cells (`Buffer.link`, set while the row
   is drawn), so the renderer writes and closes them and anything drawn over
   them (a popup) takes the mark off. Scaled headings (OSC 66) are not cells:
-  `Screen` queues them with `queue_output` after each render, so they reach the
-  terminal on the next read, at most 50 ms after the frame.
+  `Screen` is the loop's `AfterFrame` hook (0.7.0; `loop.after_frame`), so their
+  bytes are in the frame's own write, after the cells and before the cursor.
+  Until 0.6.0 they were queued with `queue_output` and arrived on the next
+  read, at most 50 ms late.
+  - The hook is asked for every frame and answers bytes only when a heading
+    has to be (re)sent: `is_full` is true (the first frame, a resize, a
+    repaint); the heading is not one the last answer left on the screen (new,
+    moved, another text or style); or the diff wrote a cell of its block. A
+    hook that always answered would make every draw a write, even of a frame
+    with no changed cell. The hook is not given the previous frame, so it keeps
+    a copy of the frame it last answered for (`Screen.seen`) and compares the
+    cells of each heading's block (`width` x 2) with it: any difference means
+    the diff wrote them and the terminal dropped the heading. Headings that
+    were not touched are not re-sent (0.6.0 re-sent all of them after every
+    frame).
+  - Not changed: the headings are not clipped by what is drawn over them. A
+    popup that covers a heading is written, and then the heading is sent
+    again over it, as 0.6.0 did.
 - Synchronized output (`should_sync`, `Caps.has_sync`) is asked of terminals
   that drop what they do not know; `compose_frame` wraps each frame.
 
@@ -334,10 +351,13 @@ The gaps below are worked around here, each in one place.
 
 ## Gaps hit in m31 and tui (none blocking)
 
-- `Loop.run_with` has no hook after a frame: bytes that must follow the cells
-  (a scaled heading, OSC 66) can only be queued before the *next* frame, so
-  they arrive up to one read wait late. An after-frame hook, or OSC 66 in the
-  cell model, would close it. (Fixed for links: they are cells in 0.10.0.)
+- `Loop.run_with` had no hook after a frame: bytes that must follow the cells
+  (a scaled heading, OSC 66) could only be queued before the *next* frame, so
+  they arrived up to one read wait late. Closed in tui 0.11.0 by
+  `Loop.after_frame` and used since 0.7.0. (Fixed for links in 0.10.0: they
+  are cells.) What the hook does not give is the previous frame or the list of
+  cells the diff wrote, so a program that wants to re-send only what the diff
+  touched keeps its own copy of the last frame (see "The loop").
 - `term.Reader.read(timeout)` resolves a lone `Esc` only on a timeout (see
   above); the loop's `tick_ms` is the knob, so the whole program waits 50 ms.
 - There is no lossy UTF-8 decode: a file that is not UTF-8 is read as Latin-1

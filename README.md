@@ -45,7 +45,7 @@ that cannot be read is exit 1.
 | `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.6.0` |
+| `--version` | | | `tui-markdown 0.7.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
@@ -93,12 +93,26 @@ down to 256 or 16 colours on terminals that have no more; `--colors
 Nothing is probed; the environment decides (`TERM`, `TERM_PROGRAM`,
 `COLORTERM`, `KITTY_WINDOW_ID`, ...) and a flag overrides. OSC 8 links are on
 everywhere except macOS Terminal.app (which prints what it does not know) and
-dumb terminals (`--links on|off`); scaled H1 is on for kitty
-(`--scale on|off`). Synchronized output (DEC mode 2026, so a frame is never
+dumb terminals (`--links on|off|auto`); scaled H1 is on for kitty
+(`--scale on|off|auto`). Synchronized output (DEC mode 2026, so a frame is never
 seen half drawn) is asked of the same terminals as links and used only when
-the terminal answers (`--sync on|off`); one that does not answer gets the plain
+the terminal answers (`--sync on|off|auto`); one that does not answer gets the plain
 frames. Everything else is plain colour and works anywhere. See
 `docs/DESIGN.md` for the research and the reasons.
+
+`on` and `off` are exact: `--links on` writes OSC 8 and `--scale on` writes OSC 66 on any terminal,
+`off` writes none. `auto` is what the environment says, the same rule as when the flag is absent
+on a screen: links unless `TERM_PROGRAM` is `Apple_Terminal` or `TERM` is `dumb`, `linux`, `vt100`,
+`ansi` or empty; scaled text when `KITTY_WINDOW_ID` is set or `TERM` is `xterm-kitty` (and the
+terminal is not one of those). Ghostty and WezTerm parse OSC 66 but do not draw it, so `auto` leaves
+it off there. `--cat` and `--dump` write neither unless asked, so `--cat --links auto` is how to get
+the environment's answer into a pipe on purpose. (Until 0.6.0 `auto` meant `off` for links and scale.)
+
+Scaled headings are not cells, so they are not part of the diff: the loop asks the program
+after each frame (`Loop.after_frame`, tui 0.11.0) and the bytes go in the same write as the cells,
+inside the synchronized update. A heading is sent when the whole screen was rewritten, when it
+appeared or moved, and when the frame wrote a cell of its block (a popup over it); a frame that
+leaves it alone sends nothing, so one that changes nothing is not written at all.
 
 ### Mouse
 

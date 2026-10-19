@@ -4,6 +4,43 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.7.0
+
+The program uses what tui 0.11.0 added for its 0.6.0 findings, and `auto` means what it says. With `--scale
+off --links off --sync off` the bytes written for the viewer, the editor and the source pane are identical to
+0.6.0 (checked on 75 scripted steps under a pty); with scale and links on the emulator screens (text, links,
+scaled headings still on the screen) match 0.6.0 step for step. The goldens did not change. Built and tested
+against m31 v0.6.0 and tui v0.11.0 (e156723).
+
+### Changed
+
+- Scaled headings (OSC 66) go through `Loop.after_frame`: `Screen` is the hook, and the bytes are in the same
+  write as the frame (after the cells, before the cursor, inside the synchronized update) instead of
+  `Loop.queue_output` on the next read, up to 50 ms late. The hook answers a heading only when `is_full` is true,
+  when the heading is new, moved or changed, or when the frame's diff wrote a cell of its block (a popup over it,
+  closing); a frame that leaves them alone answers nothing, so one that changes nothing is not written. It keeps
+  a copy of the frame it last answered for to know. Headings that were not touched are no longer re-sent after
+  every frame (87600 bytes of the pty script with scale on became 86750). `Screen.build_overlay` and
+  `Screen.loop` are gone.
+- Mouse and motion reports are asked of the loop (`should_report_raw_mouse`, `should_report_hover`) instead of
+  `MOUSE_ON` and `HOVER_ON` appended by hand to `enter` and `leave`. The same bytes on the wire, in the same
+  places; the reports still reach `App.handle` unrouted. `MDV_cli.make_loop` is public (tested).
+- Pins tui v0.11.0 (e156723). Version 0.7.0.
+
+### Fixed
+
+- `--links auto` and `--scale auto` meant off (the capability was set to `mode == "on"`). `auto` is now what the
+  environment says, as it was for `--sync auto`: links except on Terminal.app and dumb terminals, scaled
+  headings on kitty. `on` and `off` are exact. It applies under `--cat` and `--dump` too when the flag is
+  given; without a flag nothing changed.
+
+### Added
+
+- `tests/t_frame.m31` (the hook: first frame, identical frame, `is_full`, change elsewhere, popup over a heading
+  and closing, scrolled away and back, a moved heading, scale off), `tests/t_loop.m31` (entry and exit bytes,
+  the on/off/auto function), 26 `--links` and `--scale` checks in `tests/test_cli.sh` against made-up
+  environments, and `--links`, `--scale` and the no-redundant-OSC 66 checks in `tests/pty_e2e.py`.
+
 ## 0.6.0
 
 The program moves onto tui 0.10.0 and deletes its private copy of the loop. With `--links off --scale off

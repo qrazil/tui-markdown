@@ -1,3 +1,13 @@
+# tui-markdown 0.7.0: Loop.after_frame
+
+Version 0.7.0, from 0.6.0 (13db272). Pins tui v0.11.0 (e156723); m31 v0.6.0.
+
+| Was | Is |
+|---|---|
+| `Screen.loop` (the loop the headings were queued on), `Screen.build_overlay()` | gone; `Screen` is a `TUI_app.AfterFrame` (`Screen.after_frame(frame, is_full)`), set with `loop.after_frame = Option<TUI_app.AfterFrame>.Some(screen)` |
+| `loop.enter` / `loop.leave` carrying `term.MOUSE_ON` and `TUI_mouse.HOVER_ON` | `should_report_raw_mouse` and `should_report_hover` in `MDV_cli.make_loop` (now `pub`) |
+| `--links auto`, `--scale auto` meant off | the environment's answer (`MDV_cli.is_switched_on`) |
+
 # tui-markdown 0.6.0: Loop.run_with
 
 Version 0.6.0, from 0.5.0 (8cf24e7). Pins tui v0.10.0 (73c226e); m31 v0.6.0.
