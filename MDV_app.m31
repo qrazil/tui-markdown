@@ -2,8 +2,8 @@
 // to, and the clock that notices a file changing.
 //
 // `Viewer` decides and says what it wants as `Request`s; this carries them
-// out. Reading a file is `read_text`; copying is an OSC 52 sequence queued in
-// `outbox` for the loop to write; auto-reload is a `stat` on every idle tick,
+// out. Reading a file is `read_text`; copying is an OSC 52 sequence queued on
+// the loop to write; auto-reload is a `stat` on every timer tick,
 // comparing size and modification time with the last look.
 
 import MDV_caps;
@@ -91,7 +91,8 @@ pub str stamp_of(str path) {
 pub type App {
     pub MDV_viewer.Viewer viewer;
     pub MDV_render.Screen screen;
-    pub bytes outbox = [];
+    /// The loop that runs the program: clipboard writes are queued on it.
+    pub TUI_app.Loop loop = TUI_app.Loop();
     /// `stamp_of` the file as last read.
     pub str stamp = "";
     /// Should a change on disk reload the file?
@@ -208,7 +209,7 @@ void App.open_url(str url) {
         case Err(proc.Error error): {
         }
     }
-    outbox.extend(copy_sequence(url));
+    loop.queue_output(copy_sequence(url));
     viewer.message = "could not open, copied " + url;
 }
 
@@ -223,7 +224,7 @@ pub void App.serve() {
                 open_file(path);
             }
             case Copy(str text): {
-                outbox.extend(copy_sequence(text));
+                loop.queue_output(copy_sequence(text));
                 copy_system(text);
             }
             case OpenUrl(str url): {
@@ -308,8 +309,16 @@ void App.count_clicks(term.Mouse report) {
     }
 }
 
+/// The loop's timer (`Loop.animate_ms`): has the file changed on disk?
+pub TUI_app.Action App.tick(int elapsed_ms) {
+    if (needs_redraw()) {
+        return TUI_app.Action.Redraw;
+    }
+    return TUI_app.Action.Continue;
+}
+
 /// Idle: has the file changed on disk?
-pub bool App.needs_redraw() {
+bool App.needs_redraw() {
     if (!is_watching || viewer.name == STDIN_NAME) {
         return false;
     }
@@ -325,17 +334,6 @@ pub bool App.needs_redraw() {
     }
     reload();
     return true;
-}
-
-/// Bytes to write after each frame: what the cell buffer cannot say.
-pub bytes App.after_frame() {
-    return screen.overlay;
-}
-
-pub bytes App.take_output() {
-    bytes out = outbox;
-    outbox = [];
-    return out;
 }
 
 /// The programs that read and write the system clipboard, tried in order; the

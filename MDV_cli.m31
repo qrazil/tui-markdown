@@ -4,7 +4,6 @@ import MDV_app;
 import MDV_caps;
 import MDV_cat;
 import MDV_layout;
-import MDV_loop;
 import MDV_prepare;
 import MDV_render;
 import MDV_theme;
@@ -14,6 +13,7 @@ import io;
 import os;
 import term;
 import tui.app.TUI_app;
+import tui.core.TUI_mouse;
 import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
@@ -242,6 +242,28 @@ int run_cat(List<str> names, Look look) {
     return 0;
 }
 
+/// How long a read waits, which is also how long a held Escape waits for the
+/// rest of a key sequence.
+const int ESCAPE_WAIT_MS = 50;
+/// How often the timer asks whether the file changed on disk.
+const int WATCH_MS = 250;
+
+/// The loop's settings. Mouse reports are asked for in `enter` and `leave`
+/// rather than with `should_report_mouse`: the loop would then route them to a
+/// `MouseHandler`, and the viewer takes the raw reports. One frame per event
+/// (`drain_events`), as it always was.
+TUI_app.Loop make_loop(MDV_caps.Caps caps) {
+    TUI_app.Loop loop = TUI_app.Loop(depth: caps.depth);
+    loop.input_fd = TUI_app.INPUT_AUTO;
+    loop.tick_ms = ESCAPE_WAIT_MS;
+    loop.animate_ms = WATCH_MS;
+    loop.drain_events = 0;
+    loop.enter = loop.enter + term.MOUSE_ON + TUI_mouse.HOVER_ON;
+    loop.leave = TUI_mouse.HOVER_OFF + term.MOUSE_OFF + loop.leave;
+    loop.should_report_paste = true;
+    return loop;
+}
+
 int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bool is_side) {
     match (load(names[0])) {
         case Err(str why): {
@@ -266,11 +288,14 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
             }
             MDV_app.App app = MDV_app.open(viewer, look.theme, look.caps);
             app.is_watching = is_watching;
-            TUI_app.Loop loop = TUI_app.Loop(depth: look.caps.depth);
-            loop.should_report_mouse = true;
-            loop.should_report_hover = true;
-            loop.should_report_paste = true;
-            match (MDV_loop.run(loop, app.screen, app)) {
+            if (!term.is_terminal(1)) {
+                io.eprint("tui-markdown: " + term.Error.NotATerminal.to_str());
+                return 1;
+            }
+            TUI_app.Loop loop = make_loop(look.caps);
+            app.loop = loop;
+            app.screen.loop = loop;
+            match (loop.run_with(app.screen, app, app, TUI_app.NoMouse())) {
                 case Ok(int status): {
                     return 0;
                 }
@@ -378,7 +403,7 @@ pub int run(List<str> argv) {
                 names = [MDV_app.STDIN_NAME];
             }
             bool is_dump = given.is_flag_set("dump");
-            bool is_interactive = !is_dump && !given.is_flag_set("cat") && MDV_loop.input_fd() >= 0 && term.is_terminal(1);
+            bool is_interactive = !is_dump && !given.is_flag_set("cat") && TUI_app.pick_input_fd(TUI_app.INPUT_AUTO, term.is_terminal(0), term.is_terminal(1)) >= 0 && term.is_terminal(1);
             Look look = Look(pick_theme(given), pick_caps(given, is_interactive), given.integer("width").or(0), given.integer("max-width").or(MDV_viewer.MAX_TEXT_WIDTH), is_dump, given.is_flag_set("zebra"), given.is_flag_set("numbers"));
             look.is_smart = given.is_flag_set("smart");
             if (given.is_flag_set("edit")) {

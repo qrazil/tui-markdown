@@ -12,6 +12,7 @@ import MDV_cat;
 import MDV_model;
 import MDV_theme;
 import MDV_viewer;
+import tui.app.TUI_app;
 import tui.app.TUI_diff;
 import tui.core.TUI_buffer;
 import tui.core.TUI_geometry;
@@ -21,14 +22,12 @@ import tui.core.TUI_text;
 import tui.core.TUI_widget;
 
 /// A stretch of the screen the cell buffer cannot describe on its own: a
-/// link (OSC 8) or a scaled heading (OSC 66), drawn over the cells after the
-/// frame.
+/// scaled heading (OSC 66), drawn over the cells after the frame. (A link,
+/// OSC 8, is a property of the cells and is marked with `Buffer.link`.)
 type Region {
     int x;
     int y;
     int width;
-    /// The link index, or -1 for a scaled heading.
-    int link;
     int scale;
     str text;
     int style;
@@ -38,8 +37,9 @@ pub type Screen {
     pub MDV_viewer.Viewer viewer;
     pub MDV_theme.Theme theme;
     pub MDV_caps.Caps caps = MDV_caps.bare();
-    /// What to write after the frame's cells: the links and scaled text.
-    pub bytes overlay = [];
+    /// The loop the screen is shown by: the scaled headings (which are not
+    /// cells) are queued on it to be written once the frame is.
+    pub TUI_app.Loop loop = TUI_app.Loop();
     List<Region> regions = [];
     /// The layout row the caret is on this frame, -1 for none.
     int caret_index = -1;
@@ -70,7 +70,7 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
             // written over them after the frame.
             int wide = 2 * TUI_text.width(span.text);
             buffer.fill(TUI_geometry.Rect(column, y, wide, 2), "\u{2800}", base);
-            regions.push(Region(column, y, wide, -1, row.big, span.text, base.pack()));
+            regions.push(Region(column, y, wide, row.big, span.text, base.pack()));
             column = column + wide;
             continue;
         }
@@ -80,7 +80,7 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
             if (!span.has_bits(MDV_model.DECO)) {
                 offset = offset + span.text.size();
             }
-            note_link(span, region_start, column, y);
+            note_link(buffer, span, region_start, column, y);
             continue;
         }
         // Cut the span wherever a hit starts or ends inside it.
@@ -112,7 +112,7 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
             from = upto;
         }
         offset = offset + length;
-        note_link(span, region_start, column, y);
+        note_link(buffer, span, region_start, column, y);
     }
     if (row_index == caret_index) {
         draw_caret(buffer, x, y, row);
@@ -208,11 +208,11 @@ void Screen.draw_caret(TUI_buffer.Buffer buffer, int x, int y, MDV_model.Row row
     buffer.set_style(caret_x, y, here.style.with_attrs(here.style.attrs ^ TUI_style.REVERSE));
 }
 
-/// Remember that columns `first` up to `stop` of row `y` are a link the
-/// terminal should know about.
-void Screen.note_link(MDV_model.Span span, int first, int stop, int y) {
+/// Mark columns `first` up to `stop` of row `y` as a link (OSC 8) the terminal
+/// should know about. Whatever is drawn over them later takes the mark off.
+void Screen.note_link(TUI_buffer.Buffer buffer, MDV_model.Span span, int first, int stop, int y) {
     if (caps.has_links && span.link >= 0 && span.has_bits(MDV_model.LINK) && stop > first && MDV_cat.is_openable(viewer.layout.links[span.link].href)) {
-        regions.push(Region(first, y, stop - first, span.link, 0, "", 0));
+        buffer.link(TUI_geometry.Rect(first, y, stop - first, 1), viewer.layout.links[span.link].href);
     }
 }
 
@@ -686,41 +686,19 @@ void Screen.draw_scrollbar(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// The cells of columns `x` up to `x + width` of row `y`, read back out of
-/// the finished frame as bytes.
-void Screen.cells(bytes out, TUI_buffer.Buffer buffer, int x, int y, int width) {
-    int pen = TUI_style.RESET_STYLE;
-    for (int column in x .. x + width) {
-        TUI_buffer.Cell cell = buffer.get(column, y);
-        if (cell.width == 0) {
-            continue;
-        }
-        int target = cell.style.pack();
-        TUI_style.sgr(out, pen, target, caps.depth);
-        pen = target;
-        out.extend(cell.symbol.to_bytes());
-    }
-    if (pen != TUI_style.RESET_STYLE) {
-        TUI_style.push_reset(out);
-    }
-}
-
-/// Write the links and scaled headings over the finished frame.
-void Screen.build_overlay(TUI_buffer.Buffer buffer) {
+/// Queue the scaled headings, which are not cells, to be written after the
+/// frame (`Loop.queue_output`: the loop has no hook after a frame).
+void Screen.build_overlay() {
     bytes out = [];
     for (Region region in regions) {
         TUI_diff.move_to(out, region.x, region.y);
-        if (region.link >= 0) {
-            out.extend(MDV_cat.link_sequence(region.link, viewer.layout.links[region.link].href).to_bytes());
-            cells(out, buffer, region.x, region.y, region.width);
-            out.extend(MDV_cat.link_sequence(0, "").to_bytes());
-        } else {
-            TUI_style.sgr(out, TUI_style.RESET_STYLE, region.style, caps.depth);
-            out.extend(MDV_cat.scaled_sequence(region.scale, region.text).to_bytes());
-            TUI_style.push_reset(out);
-        }
+        TUI_style.sgr(out, TUI_style.RESET_STYLE, region.style, caps.depth);
+        out.extend(MDV_cat.scaled_sequence(region.scale, region.text).to_bytes());
+        TUI_style.push_reset(out);
     }
-    overlay = out;
+    if (out.size() > 0) {
+        loop.queue_output(out);
+    }
 }
 
 pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
@@ -780,7 +758,7 @@ pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         case Prompt: {
         }
     }
-    build_overlay(buffer);
+    build_overlay();
 }
 
 str count_text(MDV_viewer.Viewer viewer) {
