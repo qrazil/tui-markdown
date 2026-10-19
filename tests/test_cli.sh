@@ -122,6 +122,67 @@ run --cat --cat tour.md; expect "--cat twice" 2 "" "was given more than once"
 [ "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" -ge 2 ] && note "usage errors carry the usage line" || bad "usage error shape" "$err"
 run --cat nope.md;       expect "a missing file exits 1" 1 "" "nope.md"
 
+# --- --links and --scale: on and off are exact, auto is what the environment says ------------
+# runenv "VAR=value ..." ARGS...: the environment is cleared of every variable the
+# program reads about its terminal, then set to what the test says (no spaces in values).
+runenv() {
+    local vars=$1
+    shift
+    # shellcheck disable=SC2086
+    env -u NO_COLOR -u COLORFGBG -u COLORTERM -u TERM_PROGRAM -u TERM_PROGRAM_VERSION -u KITTY_WINDOW_ID -u WEZTERM_EXECUTABLE -u GHOSTTY_RESOURCES_DIR -u LC_TERMINAL -u VTE_VERSION -u WT_SESSION -u KONSOLE_VERSION TERM=xterm-256color $vars "$BIN" "$@" >"$WORK/out" 2>"$WORK/err" <"${stdin:-/dev/null}"
+    code=$?
+    out=$(cat "$WORK/out")
+    err=$(cat "$WORK/err")
+}
+# hyperlinks LABEL ENV WANT ARGS...: does --cat rich.md carry OSC 8 (yes or no)?
+hyperlinks() {
+    local label=$1 vars=$2 want=$3
+    shift 3
+    runenv "$vars" --cat --width 60 "$@" rich.md
+    local got=no
+    [ "$(printf '%s\n' "$out" | grep -c "${esc}]8;id=l")" -gt 0 ] && got=yes
+    same "links: $label" "$want" "$got"
+}
+# scaled LABEL ENV WANT ARGS...: does --cat rich.md carry OSC 66 (yes or no)?
+scaled() {
+    local label=$1 vars=$2 want=$3
+    shift 3
+    runenv "$vars" --cat --width 60 "$@" rich.md
+    local got=no
+    [ "$(printf '%s\n' "$out" | grep -c "${esc}]66;s=2;")" -gt 0 ] && got=yes
+    same "scale: $label" "$want" "$got"
+}
+hyperlinks "no flag, --cat: off (unchanged)" "" no
+hyperlinks "on" "" yes --links on
+hyperlinks "on beats Terminal.app" "TERM_PROGRAM=Apple_Terminal" yes --links on
+hyperlinks "off" "" no --links off
+hyperlinks "off beats a terminal that has them" "TERM_PROGRAM=iTerm.app" no --links off
+hyperlinks "auto in xterm-256color: on" "" yes --links auto
+hyperlinks "auto in kitty: on" "KITTY_WINDOW_ID=1 TERM=xterm-kitty" yes --links auto
+hyperlinks "auto in iTerm2: on" "TERM_PROGRAM=iTerm.app" yes --links auto
+hyperlinks "auto in Terminal.app: off" "TERM_PROGRAM=Apple_Terminal" no --links auto
+hyperlinks "auto in TERM=dumb: off" "TERM=dumb" no --links auto
+hyperlinks "auto in TERM=linux: off" "TERM=linux" no --links auto
+hyperlinks "--links=auto is the same" "" yes --links=auto
+scaled "no flag, --cat, kitty: off (unchanged)" "KITTY_WINDOW_ID=1 TERM=xterm-kitty" no
+scaled "on" "" yes --scale on
+scaled "on beats Terminal.app" "TERM_PROGRAM=Apple_Terminal" yes --scale on
+scaled "off beats kitty" "KITTY_WINDOW_ID=1 TERM=xterm-kitty" no --scale off
+scaled "auto in kitty (window id): on" "KITTY_WINDOW_ID=1" yes --scale auto
+scaled "auto in kitty (TERM): on" "TERM=xterm-kitty" yes --scale auto
+scaled "auto in xterm-256color: off" "" no --scale auto
+scaled "auto in Ghostty (parses, does not draw it): off" "GHOSTTY_RESOURCES_DIR=/x" no --scale auto
+scaled "auto in WezTerm: off" "WEZTERM_EXECUTABLE=/x" no --scale auto
+scaled "auto in Terminal.app: off" "TERM_PROGRAM=Apple_Terminal" no --scale auto
+scaled "auto in kitty over TERM=dumb: off" "TERM=dumb KITTY_WINDOW_ID=1" no --scale auto
+scaled "--scale=auto is the same" "KITTY_WINDOW_ID=1" yes --scale=auto
+# the same flags together
+runenv "KITTY_WINDOW_ID=1" --cat --width 60 --links auto --scale auto rich.md
+[ "$(printf '%s\n' "$out" | grep -c "${esc}]8;id=l")" -gt 0 ] && [ "$(printf '%s\n' "$out" | grep -c "${esc}]66;s=2;")" -gt 0 ] && note "auto links and scale together, in kitty" || bad "auto links and scale together"
+runenv "" --cat --width 60 --theme plain --scale auto rich.md; auto_out=$out
+runenv "" --cat --width 60 --theme plain rich.md
+same "--scale auto changes nothing for --theme plain outside kitty" "$out" "$auto_out"
+
 cd "$ROOT"
 
 # --- install.sh ----------------------------------------------------------------

@@ -1,4 +1,7 @@
-// The loop's settings (`MDV_cli.make_loop`): the bytes written on entry and on
+// The loop's settings (`MDV_cli.make_loop`) and the on/off/auto switches
+// (`MDV_cli.is_switched_on`).
+//
+// The loop's entry and exit: the bytes written on entry and on
 // the way out are what 0.6.0 wrote when it put the mouse modes in `enter` and
 // `leave` by hand, now that `should_report_raw_mouse` and `should_report_hover`
 // ask the loop for them. No terminal.
@@ -61,4 +64,10 @@ tally.check("exit takes them off", made.leave_sequence().contains(TUI_mouse.HOVE
 tally.check("reports are raw: the loop does not route them", made.should_report_raw_mouse && made.should_report_hover && !made.should_report_mouse);
 tally.same("no hand-written mode in enter", made.enter, TUI_app.Loop().enter);
 tally.same("no hand-written mode in leave", made.leave, TUI_app.Loop().leave);
+// --links, --scale and --sync: on and off are exact, auto is the environment's.
+tally.check("on is on whatever the environment says", MDV_cli.is_switched_on("on", false, false));
+tally.check("off is off whatever the environment says", !MDV_cli.is_switched_on("off", true, true));
+tally.check("auto is on when the environment says so", MDV_cli.is_switched_on("auto", false, true));
+tally.check("auto is off when the environment says so", !MDV_cli.is_switched_on("auto", true, false));
+tally.check("an unknown word leaves the value alone (the parser refuses it before)", MDV_cli.is_switched_on("maybe", true, false) && !MDV_cli.is_switched_on("maybe", false, true));
 print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

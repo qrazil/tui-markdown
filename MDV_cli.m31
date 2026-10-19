@@ -30,8 +30,8 @@ args.Parser parser() {
     cli.flag("dump", help: "print the page as the screen shows it (theme background, margins) at --width, with no terminal needed");
     cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N", min: "0");
     cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
-    cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (kitty)", placeholder: "MODE");
-    cli.value("links", help: "OSC 8 hyperlinks: on, off or auto", placeholder: "MODE");
+    cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (from the environment: kitty)", placeholder: "MODE");
+    cli.value("links", help: "OSC 8 hyperlinks: on, off or auto (from the environment: not Terminal.app or a dumb terminal)", placeholder: "MODE");
     cli.value("sync", help: "synchronized output (DEC 2026, asked of the terminal first): on, off or auto", placeholder: "MODE");
     cli.value("colors", help: "16, 256 or 24bit (default: from the terminal)", placeholder: "DEPTH");
     cli.flag("zebra", help: "shade alternate table rows");
@@ -103,6 +103,22 @@ MDV_theme.Theme pick_theme(args.Parsed given) {
     return MDV_theme.dark();
 }
 
+/// What a switch (`--scale`, `--links`) comes to: `on` and `off` are what they
+/// say; `auto` is what the environment says (`is_detected`, from
+/// `MDV_caps.detect`), whether or not the output is a screen.
+pub bool is_switched_on(str mode, bool is_current, bool is_detected) {
+    if (mode == "on") {
+        return true;
+    }
+    if (mode == "off") {
+        return false;
+    }
+    if (mode == "auto") {
+        return is_detected;
+    }
+    return is_current;
+}
+
 /// The capabilities to use: what the environment says, overridden by the
 /// flags.
 MDV_caps.Caps pick_caps(args.Parsed given, bool is_screen) {
@@ -127,25 +143,21 @@ MDV_caps.Caps pick_caps(args.Parsed given, bool is_screen) {
     }
     match (given.value("scale")) {
         case Some(str mode): {
-            caps.has_scale = mode == "on";
+            caps.has_scale = is_switched_on(mode, caps.has_scale, MDV_caps.detect().has_scale);
         }
         case None: {
         }
     }
     match (given.value("links")) {
         case Some(str mode): {
-            caps.has_links = mode == "on";
+            caps.has_links = is_switched_on(mode, caps.has_links, MDV_caps.detect().has_links);
         }
         case None: {
         }
     }
     match (given.value("sync")) {
         case Some(str mode): {
-            if (mode == "on") {
-                caps.has_sync = true;
-            } else if (mode == "off") {
-                caps.has_sync = false;
-            }
+            caps.has_sync = is_switched_on(mode, caps.has_sync, MDV_caps.detect().has_sync);
         }
         case None: {
         }
