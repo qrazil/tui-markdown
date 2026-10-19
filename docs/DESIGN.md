@@ -40,7 +40,7 @@ tinted header. All of that is plain SGR colour and works everywhere.
 | OSC 8 hyperlinks ([spec](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)) | `OSC 8 ; id=x ; URI ST ... OSC 8 ; ; ST`; explicit `id` groups a wrapped link; URI bytes 33..126 only; keep under ~2000 bytes | iTerm2, kitty, WezTerm, VTE, Windows Terminal, foot, Alacritty, Ghostty, Konsole (off by default), tmux >= 3.4 with a feature flag ([adoption table](https://github.com/Alhadis/OSC8-Adoption)). **Not Terminal.app**: its parser prints OSC payloads ([Damore, 2025](https://garrett.damore.org/2025/12/macos-terminal-still-missing-mark-apple.html)) | On except Terminal.app and dumb terminals; `--links on|off`. Clicks are also handled by the program (mouse reporting swallows the terminal's own Ctrl-click) |
 | Inline images | kitty graphics `ESC _ G a=T,f=100,c=,r= ; base64 ST` (PNG straight through, 4096-byte chunks) ([spec](https://sw.kovidgoyal.net/kitty/graphics-protocol/)); iTerm2 `OSC 1337 ; File=inline=1 : base64` ([docs](https://iterm2.com/documentation-images.html)); Sixel needs a quantiser | kitty/Ghostty/Konsole: kitty protocol. iTerm2 and WezTerm: iTerm2 protocol. Sixel: foot, WezTerm, Konsole, iTerm2 ([arewesixelyet](https://www.arewesixelyet.com/)). Never Terminal.app | Chosen from the environment (`MDV_caps`); the image drawing itself is Phase C. Sixel skipped (needs an image encoder, which m31 does not have) |
 | Colour | `COLORTERM=truecolor|24bit` is the signal; kitty, WezTerm, Ghostty, iTerm2, Windows Terminal, Konsole, VTE are truecolor; Terminal.app is from macOS 26 | | Palettes are 24-bit; `TUI_style.sgr` folds to 256 or 16, so no theme needs a second table |
-| Probing (XTGETTCAP, DA1, XTVERSION, DECRQM) | DA1 as a sentinel works everywhere except that Terminal.app prints the payload of DCS/APC/OSC it does not know and does not answer XTVERSION/DECRQM | | **No probing.** Decisions come from `TERM`, `TERM_PROGRAM`, `COLORTERM`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `GHOSTTY_RESOURCES_DIR`, `LC_TERMINAL`, `VTE_VERSION`; every feature has a flag. An over-ssh kitty therefore falls back to the band, which is the safe failure |
+| Probing (XTGETTCAP, DA1, XTVERSION, DECRQM) | DA1 as a sentinel works everywhere except that Terminal.app prints the payload of DCS/APC/OSC it does not know and does not answer XTVERSION/DECRQM | | **No probing for features that change what is shown** (0.6.0 asks one question, DECRQM for synchronized output, and only of terminals the environment does not mark as Terminal.app or dumb; a terminal that does not answer gets plain frames). Decisions come from `TERM`, `TERM_PROGRAM`, `COLORTERM`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `GHOSTTY_RESOURCES_DIR`, `LC_TERMINAL`, `VTE_VERSION`; every feature has a flag. An over-ssh kitty therefore falls back to the band, which is the safe failure |
 | OSC 52 clipboard | write is allowed by kitty, WezTerm, foot, Alacritty, tmux; iTerm2 needs a preference; Terminal.app drops it | | Used (as 0.2 did); Phase B adds pbcopy / wl-copy / xclip when present |
 | Keyboard | Terminal.app has no key disambiguation; the kitty keyboard protocol (`CSI ? u`) and modifyOtherKeys fix Ctrl+Shift/Ctrl+Enter elsewhere | | Every binding is a plain Ctrl+letter, Alt+letter or function key, so Terminal.app works. The enhanced protocol is not enabled |
 | Mouse | SGR 1006 reports with modifier bits; 1003 for motion | all | On: press, drag, wheel, and motion (for the hover status line) |
@@ -259,16 +259,33 @@ fields back; nothing in `t_viewer.m31` touches a file descriptor.
 - **Outline.** Built from heading levels with a recursive cursor, so a skipped
   level (`#` then `###`) still nests. It is a `TUI_outline.Outline` in a popup.
 
-## The loop (`MDV_loop`, `MDV_app`)
+## The loop (`MDV_cli`, `MDV_app`)
 
-`TUI_app.Loop.run` takes a widget and a handler. This program also needs to
-tick (file watch every 250 ms), write raw output (OSC 52) between frames, and
-notice a lone `Esc`. `term.Reader.read` only resolves a lone ESC (as opposed to
-the start of a sequence) when a read times out, so a loop that waits 250 ms for
-a key makes Esc take 250 ms. `MDV_loop` is therefore a copy of the tui loop
-that always reads with a 50 ms wait, counts idle waits to tick every 250 ms,
-and asks a `Host` interface (`handle`, `needs_redraw`, `take_output`) for the
-rest. When standard input is a pipe, keys are read from fd 1 (the terminal).
+The program runs on `TUI_app.Loop.run_with` (tui 0.10.0); until 0.6.0 it ran
+a private copy of the loop, `MDV_loop`, because `Loop.run` had no tick, no
+way to write raw bytes between frames and no escape wait. The settings are
+`MDV_cli.make_loop`:
+
+- `App` is the `Handler` (`handle`) and the `Ticker` (`tick`, every 250 ms
+  with `animate_ms`, answers `Redraw` when the file changed on disk).
+- `tick_ms` is 50. `term.Reader.read` resolves a lone ESC (as opposed to the
+  start of a sequence) only when a read times out, so a loop that waits 250 ms
+  for a key makes Esc take 250 ms; the read wait is always 50 ms.
+- `input_fd: INPUT_AUTO`: when standard input is a pipe, keys are read from the
+  terminal standard output is.
+- Mouse reports reach `App.handle` as they came: `should_report_mouse` is off
+  (the loop would route them to a `MouseHandler`) and the modes are put in
+  `enter` and `leave` instead. `drain_events` is 0, so a frame is drawn per
+  event, as it always was.
+- A copy is `Loop.copy` (OSC 52, `copy_limit` 60000); any other raw bytes are
+  `Loop.queue_output`, written before the next frame.
+- Hyperlinks (OSC 8) are marks on the cells (`Buffer.link`, set while the row
+  is drawn), so the renderer writes and closes them and anything drawn over
+  them (a popup) takes the mark off. Scaled headings (OSC 66) are not cells:
+  `Screen` queues them with `queue_output` after each render, so they reach the
+  terminal on the next read, at most 50 ms after the frame.
+- Synchronized output (`should_sync`, `Caps.has_sync`) is asked of terminals
+  that drop what they do not know; `compose_frame` wraps each frame.
 
 ## Testing, and what each layer is checked against
 
@@ -317,11 +334,12 @@ The gaps below are worked around here, each in one place.
 
 ## Gaps hit in m31 and tui (none blocking)
 
-- `TUI_app.Loop.run` has no tick hook and no way to write raw bytes between
-  frames; `MDV_loop` copies the loop around a `Host`. A `Handler` with
-  `tick()` and `take_output()` upstream would remove the copy.
+- `Loop.run_with` has no hook after a frame: bytes that must follow the cells
+  (a scaled heading, OSC 66) can only be queued before the *next* frame, so
+  they arrive up to one read wait late. An after-frame hook, or OSC 66 in the
+  cell model, would close it. (Fixed for links: they are cells in 0.10.0.)
 - `term.Reader.read(timeout)` resolves a lone `Esc` only on a timeout (see
-  above); a documented "escape wait" knob on `Loop` would be enough.
+  above); the loop's `tick_ms` is the knob, so the whole program waits 50 ms.
 - There is no lossy UTF-8 decode: a file that is not UTF-8 is read as Latin-1
   (`MDV_app.text_of`), so it shows rather than failing.
 - Parameters and fields with defaults are named-only, and `==` on enums needs a

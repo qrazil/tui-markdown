@@ -1,6 +1,6 @@
 # tui-markdown project file: this directory is the project root.
 name tui-markdown
-version 0.5.0
+version 0.6.0
 # tui v0.10.0
 tui https://github.com/qrazil/tui 73c226eed0a092e0f635f3371dfe2d199926e2fd
 markdown https://github.com/qrazil/term-markdown e384cc7d78942c71cd9d38e2a249c1af6d7afb71

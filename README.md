@@ -45,11 +45,11 @@ that cannot be read is exit 1.
 | `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.4.0` |
+| `--version` | | | `tui-markdown 0.6.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
-`--zebra`, `--numbers`, `--side`, `--mode`, `--edit`, `--smart`) are in `--help`.
+`--sync`, `--zebra`, `--numbers`, `--side`, `--mode`, `--edit`, `--smart`) are in `--help`.
 
 ## What it shows
 
@@ -94,7 +94,10 @@ Nothing is probed; the environment decides (`TERM`, `TERM_PROGRAM`,
 `COLORTERM`, `KITTY_WINDOW_ID`, ...) and a flag overrides. OSC 8 links are on
 everywhere except macOS Terminal.app (which prints what it does not know) and
 dumb terminals (`--links on|off`); scaled H1 is on for kitty
-(`--scale on|off`). Everything else is plain colour and works anywhere. See
+(`--scale on|off`). Synchronized output (DEC mode 2026, so a frame is never
+seen half drawn) is asked of the same terminals as links and used only when
+the terminal answers (`--sync on|off`); one that does not answer gets the plain
+frames. Everything else is plain colour and works anywhere. See
 `docs/DESIGN.md` for the research and the reasons.
 
 ### Mouse
@@ -196,7 +199,7 @@ problem, which is why italic and the headings are on `Alt`.
 
 `y` and external links use OSC 52 (`ESC ] 52 ; c ; base64 BEL`). It needs a
 terminal that allows it (kitty, iTerm2, WezTerm, foot, Alacritty, tmux with
-`set-clipboard on`, ...). Anything past 60000 bytes is cut.
+`set-clipboard on`, ...). Anything past 60000 bytes is cut, at a character.
 
 ### Reloading
 
@@ -226,7 +229,7 @@ bash tests/test.sh               # fmt, lint, unit, oracle, goldens, --cat, pty
 ```
 
 CI (`.github/workflows/test.yml`) runs `tests/test.sh` on Linux x86-64,
-Linux aarch64 and macOS arm64 against m31 v0.5.0; `release.yml` builds the
+Linux aarch64 and macOS arm64 against m31 v0.6.0; `release.yml` builds the
 binaries for a pushed `v*` tag.
 
 ## Layout
@@ -256,7 +259,7 @@ RENAMES.md         what changed between releases, for a user or a dependent
                     (--cat)                              |  keys -> state + Requests
                                                       MDV_render  Screen widget
                                                          |
-                                    MDV_loop / MDV_app   events, tick, files, OSC 52
+                                    MDV_app              events, tick, files, OSC 52
                                     MDV_cli              flags, the exit status
 ```
 

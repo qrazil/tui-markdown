@@ -1,3 +1,20 @@
+# tui-markdown 0.6.0: Loop.run_with
+
+Version 0.6.0, from 0.5.0 (8cf24e7). Pins tui v0.10.0 (73c226e); m31 v0.6.0.
+
+| Was | Is |
+|---|---|
+| `MDV_loop.run(loop, view, host)` | `loop.run_with(view, handler, ticker, TUI_app.NoMouse())`, the loop from `MDV_cli.make_loop(caps)` |
+| `MDV_loop.Host` (`handle`, `needs_redraw`, `take_output`, `after_frame`) | `TUI_app.Handler` (`App.handle`) and `TUI_app.Ticker` (`App.tick`) |
+| `MDV_loop.input_fd()` | `TUI_app.pick_input_fd(TUI_app.INPUT_AUTO, ...)` |
+| `MDV_loop.ESCAPE_WAIT_MS` | `MDV_cli.ESCAPE_WAIT_MS`, the loop's `tick_ms` |
+| `App.needs_redraw()`, `App.take_output()`, `App.after_frame()`, `App.outbox` | gone; `App.loop` holds the queue |
+| `MDV_app.copy_sequence(text)` | `App.loop.copy(text)` |
+| `Screen.overlay` | gone; `Screen.loop` takes the scaled headings (`queue_output`) and links are `Buffer.link` |
+
+`MDV_app.MAX_COPY` stays: it is the loop's `copy_limit`. A `Screen` or an `App` used on its own
+(a test) has a `Loop()` of its own that nothing runs.
+
 # tui-markdown 0.4.0: a light markdown editor
 
 Version 0.4.0, from 0.3.0 (1665143). The viewer becomes a viewer and editor in
