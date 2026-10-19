@@ -9,6 +9,7 @@
 #   house style    m31c fmt --check, m31c lint
 #   viewer         tests/t_viewer.m31, the state machine with no terminal
 #   frame          tests/t_frame.m31, the scaled headings the after-frame hook answers
+#   loop           tests/t_loop.m31, the loop's entry and exit bytes
 #   editing        tests/t_edit.m31 (buffer, undo, list/table/pair assists) and
 #                  tests/t_editor.m31 (panes, typing, mouse, find, palette, save)
 #   oracle         what the layout shows against the text of term-markdown's
@@ -146,6 +147,11 @@ fi
 if build t_frame; then
     "$WORK/t_frame" >"$WORK/t_frame.out" 2>&1
     tally "after-frame hook (scaled headings)" "$WORK/t_frame.out"
+fi
+
+if build t_loop; then
+    "$WORK/t_loop" >"$WORK/t_loop.out" 2>&1
+    tally "loop settings (mouse modes on the wire)" "$WORK/t_loop.out"
 fi
 
 # --- visible text against term-markdown's HTML ---------------------------------------

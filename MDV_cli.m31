@@ -13,7 +13,6 @@ import io;
 import os;
 import term;
 import tui.app.TUI_app;
-import tui.core.TUI_mouse;
 import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
@@ -260,19 +259,20 @@ const int ESCAPE_WAIT_MS = 50;
 /// How often the timer asks whether the file changed on disk.
 const int WATCH_MS = 250;
 
-/// The loop's settings. Mouse reports are asked for in `enter` and `leave`
-/// rather than with `should_report_mouse`: the loop would then route them to a
-/// `MouseHandler`, and the viewer takes the raw reports. One frame per event
+/// The loop's settings. Mouse reports are asked for with
+/// `should_report_raw_mouse` and `should_report_hover` rather than with
+/// `should_report_mouse`: the loop would then route them to a `MouseHandler`,
+/// and the viewer takes the raw reports. One frame per event
 /// (`drain_events`), as it always was.
-TUI_app.Loop make_loop(MDV_caps.Caps caps) {
+pub TUI_app.Loop make_loop(MDV_caps.Caps caps) {
     TUI_app.Loop loop = TUI_app.Loop(depth: caps.depth);
     loop.input_fd = TUI_app.INPUT_AUTO;
     loop.tick_ms = ESCAPE_WAIT_MS;
     loop.animate_ms = WATCH_MS;
     loop.drain_events = 0;
     loop.copy_limit = MDV_app.MAX_COPY;
-    loop.enter = loop.enter + term.MOUSE_ON + TUI_mouse.HOVER_ON;
-    loop.leave = TUI_mouse.HOVER_OFF + term.MOUSE_OFF + loop.leave;
+    loop.should_report_raw_mouse = true;
+    loop.should_report_hover = true;
     loop.should_report_paste = true;
     loop.should_sync = caps.has_sync;
     return loop;

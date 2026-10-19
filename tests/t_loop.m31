@@ -1,0 +1,64 @@
+// The loop's settings (`MDV_cli.make_loop`): the bytes written on entry and on
+// the way out are what 0.6.0 wrote when it put the mouse modes in `enter` and
+// `leave` by hand, now that `should_report_raw_mouse` and `should_report_hover`
+// ask the loop for them. No terminal.
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_caps;
+import MDV_cli;
+import term;
+import tui.app.TUI_app;
+import tui.core.TUI_mouse;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.same(str name, str got, str want) {
+    if (got == want) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": got [" + got + "] want [" + want + "]");
+    }
+}
+
+void Tally.check(str name, bool is_true) {
+    if (is_true) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name);
+    }
+}
+
+/// The loop 0.6.0 built: the mouse modes written by hand in `enter` and `leave`.
+TUI_app.Loop by_hand(MDV_caps.Caps caps) {
+    TUI_app.Loop loop = TUI_app.Loop(depth: caps.depth);
+    loop.enter = loop.enter + term.MOUSE_ON + TUI_mouse.HOVER_ON;
+    loop.leave = TUI_mouse.HOVER_OFF + term.MOUSE_OFF + loop.leave;
+    loop.should_report_paste = true;
+    loop.should_sync = caps.has_sync;
+    return loop;
+}
+
+Tally tally = Tally();
+MDV_caps.Caps plain = MDV_caps.bare();
+MDV_caps.Caps synced = MDV_caps.bare();
+synced.has_sync = true;
+TUI_app.Loop made = MDV_cli.make_loop(plain);
+tally.same("entry: the bytes 0.6.0 wrote", made.enter_sequence(), by_hand(plain).enter_sequence());
+tally.same("exit: the bytes 0.6.0 wrote", made.leave_sequence(), by_hand(plain).leave_sequence());
+TUI_app.Loop made_sync = MDV_cli.make_loop(synced);
+tally.same("entry with sync: the bytes 0.6.0 wrote", made_sync.enter_sequence(), by_hand(synced).enter_sequence());
+tally.same("exit with sync: the bytes 0.6.0 wrote", made_sync.leave_sequence(), by_hand(synced).leave_sequence());
+tally.check("entry asks for the mouse and for motion", made.enter_sequence().contains(term.MOUSE_ON + TUI_mouse.HOVER_ON));
+tally.check("exit takes them off", made.leave_sequence().contains(TUI_mouse.HOVER_OFF + term.MOUSE_OFF));
+tally.check("reports are raw: the loop does not route them", made.should_report_raw_mouse && made.should_report_hover && !made.should_report_mouse);
+tally.same("no hand-written mode in enter", made.enter, TUI_app.Loop().enter);
+tally.same("no hand-written mode in leave", made.leave, TUI_app.Loop().leave);
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");
