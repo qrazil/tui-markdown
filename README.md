@@ -45,7 +45,7 @@ that cannot be read is exit 1.
 | `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.7.0` |
+| `--version` | | | `tui-markdown 0.8.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
@@ -179,6 +179,7 @@ problem, which is why italic and the headings are on `Alt`.
 |---|---|
 | `j` `k`, arrows, `Enter` | scroll a line (a count works: `5j`) |
 | `Ctrl-d` `Ctrl-u` | half a page down / up |
+| `Ctrl-l` | redraw the whole screen (clears it first) |
 | `Ctrl-b`, `Space`, PgDn/PgUp | a page up / down |
 | `gg` `G` | top / bottom; `12G` and `12gg` go to row 12 |
 | `]]` `[[` | next / previous heading (a count skips that many) |

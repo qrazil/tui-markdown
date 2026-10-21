@@ -17,6 +17,7 @@
 #   goldens        `--cat --theme plain` (and one styled) output, byte for byte
 #   --cat          NO_COLOR, --width, stdin, several files, the exit codes
 #   pty            tests/pty_e2e.py drives the real binary under a pty
+#   pty, variants  tests/pty_variants.py: the same binary on emulated terminals that measure text differently
 #
 # The suite runs on bash 3.2 and BSD tools (macOS): no associative arrays, no
 # `mapfile`, no GNU-only flags. Where a BSD tool differs (`wc` pads its
@@ -349,6 +350,13 @@ if python3 tests/pty_e2e.py "$BIN" "$ROOT/tests/fixtures" "$WORK/pty" >"$WORK/pt
     :
 fi
 tally "pty end to end" "$WORK/pty.out"
+
+# the viewer on terminals that measure text differently (pyte needed: skipped, with a note, without it)
+if python3 tests/pty_variants.py "$BIN" "$WORK/ptyvariants" >"$WORK/ptyvariants.out" 2>&1; then
+    note "pty on differently measuring terminals: $(tail -1 "$WORK/ptyvariants.out")"
+else
+    bad "pty on differently measuring terminals" "$(head -12 "$WORK/ptyvariants.out")"
+fi
 
 echo
 if [ $fail -eq 0 ]; then

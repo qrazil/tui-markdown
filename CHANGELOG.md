@@ -4,6 +4,28 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.8.0
+
+Screen corruption on real Macs. The viewer leaves pieces of earlier frames on a terminal that measures a cluster
+differently from the library: scrolling a page that holds a text emoji (`U+26A0 U+FE0F`), a keycap, Devanagari, halfwidth
+katakana with a dakuten or an emoji newer than the terminal's tables left the tail of a line or a stray word in the
+next row (`tests/pty_variants.py` below, in the form that repainted by resizing, on the unchanged 0.7.0 binary: 78 of 105
+comparisons wrong, 15 steps on 7 emulated terminals). The renderer is tui's; this release pins tui v0.13.0 (f67234d, see its CHANGELOG): rows with
+a cluster of uncertain width are written whole from the cluster to their end, the column a narrower terminal leaves
+undrawn is blanked, autowrap is off, and a full repaint clears the screen. Built and tested against m31 v0.9.0.
+
+### Added
+
+- `tests/pty_variants.py` (run by `tests/test.sh`, skipped when `pyte` is missing): a document full of what terminals
+  disagree on, in a heading, a list, a table, a quote and a code block, scrolled by line, page and to the ends, with the
+  help open and resized, replayed on seven emulated terminals (pyte, which adds code points up as Terminal.app does, and
+  six more width tables). After every step each terminal's screen must equal what a from-scratch repaint gives on it.
+
+### Changed
+
+- CTRL-L redraws the whole screen (`Loop.should_repaint_on_ctrl_l`, listed in the help), as m3 always had.
+- Pins tui v0.13.0 (f67234d). Version 0.8.0.
+
 ## 0.7.0
 
 The program uses what tui 0.11.0 added for its 0.6.0 findings, and `auto` means what it says. With `--scale

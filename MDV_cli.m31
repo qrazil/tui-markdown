@@ -17,7 +17,7 @@ import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
 /// Keep in step with `version` in the `deps` file.
-pub const str VERSION = "0.7.0";
+pub const str VERSION = "0.8.0";
 /// What `--theme` accepts, as the usage error lists them.
 const str THEME_NAMES = "dark, light, tokyonight, nightfox, gruvbox-material, plain";
 
@@ -287,6 +287,8 @@ pub TUI_app.Loop make_loop(MDV_caps.Caps caps) {
     loop.should_report_hover = true;
     loop.should_report_paste = true;
     loop.should_sync = caps.has_sync;
+    // CTRL-L writes every cell again, for a screen something else wrote on
+    loop.should_repaint_on_ctrl_l = true;
     return loop;
 }
 

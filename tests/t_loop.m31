@@ -39,6 +39,12 @@ void Tally.check(str name, bool is_true) {
     }
 }
 
+/// A sequence without the autowrap switches tui 0.13.0 added (`?7l` on entry, `?7h` on leaving): where
+/// they sit among the modes is the loop's business, the modes themselves are what is compared.
+str without_autowrap(str sequence) {
+    return sequence.split("\x1b[?7l").join("").split("\x1b[?7h").join("");
+}
+
 /// The loop 0.6.0 built: the mouse modes written by hand in `enter` and `leave`.
 TUI_app.Loop by_hand(MDV_caps.Caps caps) {
     TUI_app.Loop loop = TUI_app.Loop(depth: caps.depth);
@@ -54,13 +60,15 @@ MDV_caps.Caps plain = MDV_caps.bare();
 MDV_caps.Caps synced = MDV_caps.bare();
 synced.has_sync = true;
 TUI_app.Loop made = MDV_cli.make_loop(plain);
-tally.same("entry: the bytes 0.6.0 wrote", made.enter_sequence(), by_hand(plain).enter_sequence());
-tally.same("exit: the bytes 0.6.0 wrote", made.leave_sequence(), by_hand(plain).leave_sequence());
+tally.check("entry: autowrap is switched off, and on again on the way out", made.enter_sequence().contains("\x1b[?7l") && made.leave_sequence().contains("\x1b[?7h"));
+tally.check("CTRL-L repaints", made.should_repaint_on_ctrl_l);
+tally.same("entry: the bytes 0.6.0 wrote", without_autowrap(made.enter_sequence()), without_autowrap(by_hand(plain).enter_sequence()));
+tally.same("exit: the bytes 0.6.0 wrote", without_autowrap(made.leave_sequence()), without_autowrap(by_hand(plain).leave_sequence()));
 TUI_app.Loop made_sync = MDV_cli.make_loop(synced);
-tally.same("entry with sync: the bytes 0.6.0 wrote", made_sync.enter_sequence(), by_hand(synced).enter_sequence());
-tally.same("exit with sync: the bytes 0.6.0 wrote", made_sync.leave_sequence(), by_hand(synced).leave_sequence());
-tally.check("entry asks for the mouse and for motion", made.enter_sequence().contains(term.MOUSE_ON + TUI_mouse.HOVER_ON));
-tally.check("exit takes them off", made.leave_sequence().contains(TUI_mouse.HOVER_OFF + term.MOUSE_OFF));
+tally.same("entry with sync: the bytes 0.6.0 wrote", without_autowrap(made_sync.enter_sequence()), without_autowrap(by_hand(synced).enter_sequence()));
+tally.same("exit with sync: the bytes 0.6.0 wrote", without_autowrap(made_sync.leave_sequence()), without_autowrap(by_hand(synced).leave_sequence()));
+tally.check("entry asks for the mouse and for motion", without_autowrap(made.enter_sequence()).contains(term.MOUSE_ON + TUI_mouse.HOVER_ON));
+tally.check("exit takes them off", without_autowrap(made.leave_sequence()).contains(TUI_mouse.HOVER_OFF + term.MOUSE_OFF));
 tally.check("reports are raw: the loop does not route them", made.should_report_raw_mouse && made.should_report_hover && !made.should_report_mouse);
 tally.same("no hand-written mode in enter", made.enter, TUI_app.Loop().enter);
 tally.same("no hand-written mode in leave", made.leave, TUI_app.Loop().leave);
