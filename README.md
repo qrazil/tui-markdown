@@ -45,7 +45,7 @@ that cannot be read is exit 1.
 | `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.8.0` |
+| `--version` | | | `tui-markdown 0.9.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
@@ -99,6 +99,15 @@ seen half drawn) is asked of the same terminals as links and used only when
 the terminal answers (`--sync on|off|auto`); one that does not answer gets the plain
 frames. Everything else is plain colour and works anywhere. See
 `docs/DESIGN.md` for the research and the reasons.
+
+Character widths are measured at start-up (tui 0.14.0): one write asks the terminal, with cursor position
+reports, how wide it draws box drawing, arrows, Greek and Cyrillic, emoji, flags, a family, a combining letter and a
+Nerd Font glyph, and the screen is laid out at what it answers. A terminal that draws box characters two columns wide
+(a CJK locale, "ambiguous = wide") gets ASCII borders for the help and outline boxes; one that never answers costs a
+single wait of at most 150 ms before the first frame and gets the 0.8.0 behaviour. Set `TUI_WIDTH_PROBE=off` to skip
+the measuring and `TUI_BORDERS=ascii|unicode|auto` to choose the borders (`ascii` and `unicode` win over the
+measurement). They are environment variables, not options: there is nothing to decide per run. `--cat` and `--dump`
+never ask a terminal. The renderer is several times faster since tui 0.15.0, with the same bytes.
 
 `on` and `off` are exact: `--links on` writes OSC 8 and `--scale on` writes OSC 66 on any terminal,
 `off` writes none. `auto` is what the environment says, the same rule as when the flag is absent

@@ -18,6 +18,7 @@
 #   --cat          NO_COLOR, --width, stdin, several files, the exit codes
 #   pty            tests/pty_e2e.py drives the real binary under a pty
 #   pty, variants  tests/pty_variants.py: the same binary on emulated terminals that measure text differently
+#   pty, width     tests/pty_width.py: the start-up width probe (tui 0.14.0) against an emulator that answers cursor reports
 #
 # The suite runs on bash 3.2 and BSD tools (macOS): no associative arrays, no
 # `mapfile`, no GNU-only flags. Where a BSD tool differs (`wc` pads its
@@ -356,6 +357,13 @@ if python3 tests/pty_variants.py "$BIN" "$WORK/ptyvariants" >"$WORK/ptyvariants.
     note "pty on differently measuring terminals: $(tail -1 "$WORK/ptyvariants.out")"
 else
     bad "pty on differently measuring terminals" "$(head -12 "$WORK/ptyvariants.out")"
+fi
+
+# the start-up width probe through the real binary, on an emulator that answers cursor position reports
+if python3 tests/pty_width.py "$BIN" "$WORK/ptywidth" >"$WORK/ptywidth.out" 2>&1; then
+    note "pty width probe: $(tail -1 "$WORK/ptywidth.out")"
+else
+    bad "pty width probe" "$(grep -v '^ok' "$WORK/ptywidth.out" | head -12)"
 fi
 
 echo

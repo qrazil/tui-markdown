@@ -4,6 +4,27 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.9.0
+
+Pins tui v0.15.0 (f7c9189; its CHANGELOG has 0.14.0 and 0.15.0). Built and tested against m31 v0.9.0.
+
+- **The terminal's character widths are measured at start-up** (tui 0.14.0, in `Loop.run_with`, which the viewer already
+  uses): one write of cursor position report requests after the alternate screen is entered, answers read for at most
+  150 ms. A class the terminal draws as the library expects is diffed per cell, with none of 0.13.0's forced rewrites; a
+  class drawn differently is laid out at the measured width. A terminal that never answers costs one wait of at most 150 ms
+  before the first frame and keeps the 0.8.0 policy; keys typed meanwhile are kept. `TUI_WIDTH_PROBE=off` skips it. `--cat`
+  and `--dump` never reach the loop.
+- **Borders adapt.** On a terminal measured drawing box characters wide the help, outline and other boxes are ASCII
+  (`+-|`). `TUI_BORDERS=ascii|unicode|auto` chooses (the variable wins over the measurement). Both variables are
+  environment only: the viewer has no option for them.
+- **A faster renderer** (tui 0.15.0): the same bytes, several times faster (full repaints 7-8x, one-cell diffs about 2x).
+- `tests/pty_width.py` (run by `tests/test.sh`, skipped when `pyte` is missing): the real binary on an emulator that
+  answers cursor position reports: the probe is asked, a terminal that draws box characters wide gets ASCII borders and a
+  screen equal to its own repaint, `TUI_BORDERS` and `TUI_WIDTH_PROBE=off` are obeyed, a mute terminal's first frame
+  waits for the budget and keeps the keys typed meanwhile. `tests/pty_e2e.py` waits for the first frame instead of 80 ms of quiet:
+  its emulator answers no cursor reports, so the frame comes after the probe's 150 ms budget (the test, not the viewer, assumed
+  the frame follows the first bytes at once).
+
 ## 0.8.0
 
 Screen corruption on real Macs. The viewer leaves pieces of earlier frames on a terminal that measures a cluster

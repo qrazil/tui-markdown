@@ -225,6 +225,11 @@ class Session:
             self.proc.stdin.write(stdin_data.encode())
             self.proc.stdin.close()
         self.drain(0.4)
+        # tui 0.14.0 waits up to 150 ms for the terminal's width reports before the first frame (this emulator answers
+        # none), and `drain` gives up after 80 ms of quiet once bytes have come: the probe's own bytes. So wait for the frame.
+        end = time.time() + 5.0
+        while time.time() < end and self.proc.poll() is None and not self.text().strip():
+            self.drain(0.1)
 
     def drain(self, timeout=0.3):
         got = False
