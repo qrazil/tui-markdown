@@ -11,6 +11,13 @@
 // terminal has when it must, so no theme needs a second table. `plain()` is
 // the theme for NO_COLOR: no colour and no attribute either, so a pipe gets
 // text.
+//
+// Transparency (docs/TRANSPARENCY.md): a terminal shows the desktop through a
+// cell only when the cell's background is the terminal's own, so a theme that
+// paints every surface is opaque on a terminal with opacity or blur.
+// `Theme.transparency` (OFF, ALL, POPUPS) makes every style that leaves this
+// module pass through `transparent_style`, the one place that decides which
+// backgrounds survive. Nothing outside this module builds a colour of its own.
 
 import MDV_model;
 import tui.core.TUI_style;
@@ -32,12 +39,50 @@ pub type Palette {
     pub int selection = 0;
 }
 
+/// Transparency off: every style is the theme's own.
+pub const int OFF = 0;
+/// Every surface drops its background.
+pub const int ALL = 1;
+/// Only popups, menus and the find bar drop theirs.
+pub const int POPUPS = 2;
+/// What a style is, for `transparent_style`.
+/// A surface: the page, bars, the sidebar, tints behind text.
+const int SURFACE = 0;
+/// A highlight (selection, search hit, the focused link, a chosen row): keeps its background.
+const int HIGHLIGHT = 1;
+/// A badge (a mode label, a button, the open tab): a colour block that becomes coloured text.
+const int BADGE = 2;
+/// A popup or a bar over the page: the surfaces POPUPS also makes transparent.
+const int POPUP = 3;
+
 pub type Theme {
     pub str name;
     pub bool is_dark;
     /// No colour, no attributes: text only.
     pub bool is_plain = false;
     pub Palette colours = Palette();
+    /// OFF, ALL or POPUPS.
+    pub int transparency = 0;
+}
+
+/// `theme` with transparency `mode`.
+pub Theme with_transparency(Theme theme, int mode) {
+    return Theme(theme.name, theme.is_dark, is_plain: theme.is_plain, colours: theme.colours, transparency: mode);
+}
+
+/// The mode a word names: on / 1 / true, popups, off / 0 / false (and nothing at all); -1 for anything else.
+pub int mode_of(str word) {
+    str lower = word.to_lower();
+    if (lower == "on" || lower == "1" || lower == "true" || lower == "all") {
+        return ALL;
+    }
+    if (lower == "popups") {
+        return POPUPS;
+    }
+    if (lower == "off" || lower == "0" || lower == "false" || lower == "") {
+        return OFF;
+    }
+    return -1;
 }
 
 Palette palette(int page, int ink, int dim, int red, int orange, int yellow, int green, int cyan, int blue, int purple, int selection) {
@@ -115,7 +160,7 @@ pub Theme next_after(Theme current) {
     List<str> all = names();
     int slot = all.index_of(current.name).or(0);
     int target = (slot + 1) % (all.size() - 1);
-    return named(all[target]).or(dark());
+    return with_transparency(named(all[target]).or(dark()), current.transparency);
 }
 
 // --- colour arithmetic ---------------------------------------------------------------
@@ -252,8 +297,25 @@ bool is_on(int bits, int bit) {
     return (bits & bit) != 0;
 }
 
-/// The style of a span whose style bits are `bits`.
+/// The style of a span whose style bits are `bits`: the theme's look, then
+/// what transparency leaves of it.
 pub TUI_style.Style style_for(Theme theme, int bits) {
+    TUI_style.Style look = look_for(theme, bits);
+    if (theme.transparency == OFF) {
+        return look;
+    }
+    if (is_on(bits, MDV_model.SELECTED)) {
+        return transparent_style(theme.transparency, HIGHLIGHT, look);
+    }
+    TUI_style.Style out = transparent_style(theme.transparency, SURFACE, look);
+    if (theme.transparency == ALL && is_on(bits, MDV_model.ZEBRA) && !theme.is_plain) {
+        // The shade is gone: the alternate rows are told apart by being dim.
+        out = out.with_attrs(out.attrs | TUI_style.DIM);
+    }
+    return out;
+}
+
+TUI_style.Style look_for(Theme theme, int bits) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
@@ -385,6 +447,10 @@ pub TUI_style.Style style_for(Theme theme, int bits) {
 
 /// The base style of the whole screen: text on the scheme's background.
 pub TUI_style.Style base_style(Theme theme) {
+    return transparent_style(theme.transparency, SURFACE, base_look(theme));
+}
+
+TUI_style.Style base_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
@@ -393,6 +459,10 @@ pub TUI_style.Style base_style(Theme theme) {
 
 /// The style of a search hit; the current one stands out from the rest.
 pub TUI_style.Style hit_style(Theme theme, bool is_current) {
+    return transparent_style(theme.transparency, HIGHLIGHT, hit_look(theme, is_current));
+}
+
+TUI_style.Style hit_look(Theme theme, bool is_current) {
     if (theme.is_plain) {
         if (is_current) {
             return TUI_style.Style(attrs: TUI_style.REVERSE | TUI_style.BOLD | TUI_style.UNDERLINE);
@@ -408,11 +478,24 @@ pub TUI_style.Style hit_style(Theme theme, bool is_current) {
 
 /// `base`, marked as the focused link.
 pub TUI_style.Style focus_style(Theme theme, TUI_style.Style base) {
-    return base.with_attrs(base.attrs | TUI_style.REVERSE | TUI_style.BOLD);
+    if (theme.transparency != ALL || theme.is_plain) {
+        return base.with_attrs(base.attrs | TUI_style.REVERSE | TUI_style.BOLD);
+    }
+    // Reverse video would paint the terminal's own text colour as a background:
+    // the same swap with the theme's colours, and no colour read from the desktop.
+    TUI_style.Colour block = base.foreground;
+    if (block.eq(TUI_style.Colour.Default)) {
+        block = colour(theme.colours.ink);
+    }
+    return TUI_style.Style(foreground: readable_on(block), background: block, attrs: base.attrs | TUI_style.BOLD);
 }
 
 /// The status line and the toolbar.
 pub TUI_style.Style status_style(Theme theme) {
+    return transparent_style(theme.transparency, SURFACE, status_look(theme));
+}
+
+TUI_style.Style status_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style(attrs: TUI_style.REVERSE);
     }
@@ -422,6 +505,16 @@ pub TUI_style.Style status_style(Theme theme) {
 
 /// A status-line segment that is a button or a mode label.
 pub TUI_style.Style accent_style(Theme theme) {
+    return transparent_style(theme.transparency, BADGE, accent_look(theme));
+}
+
+/// The chosen row of a list (the command palette, the outline popup): the
+/// accent look, kept as a highlight.
+pub TUI_style.Style select_style(Theme theme) {
+    return transparent_style(theme.transparency, HIGHLIGHT, accent_look(theme));
+}
+
+TUI_style.Style accent_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style(attrs: TUI_style.REVERSE | TUI_style.BOLD);
     }
@@ -431,6 +524,10 @@ pub TUI_style.Style accent_style(Theme theme) {
 
 /// The dim text of chrome outside the document (breadcrumb separators).
 pub TUI_style.Style quiet_style(Theme theme) {
+    return transparent_style(theme.transparency, SURFACE, quiet_look(theme));
+}
+
+TUI_style.Style quiet_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style(attrs: TUI_style.DIM);
     }
@@ -441,6 +538,10 @@ pub TUI_style.Style quiet_style(Theme theme) {
 /// Popups sit on a background of their own so the text under them does not
 /// show through.
 pub TUI_style.Style popup_style(Theme theme) {
+    return transparent_style(theme.transparency, POPUP, popup_look(theme));
+}
+
+TUI_style.Style popup_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
@@ -450,6 +551,10 @@ pub TUI_style.Style popup_style(Theme theme) {
 
 /// The sidebar's background: a hair off the page.
 pub TUI_style.Style side_style(Theme theme) {
+    return transparent_style(theme.transparency, SURFACE, side_look(theme));
+}
+
+TUI_style.Style side_look(Theme theme) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
@@ -459,6 +564,10 @@ pub TUI_style.Style side_style(Theme theme) {
 
 /// The scrollbar thumb and track.
 pub TUI_style.Style thumb_style(Theme theme, bool is_thumb) {
+    return transparent_style(theme.transparency, SURFACE, thumb_look(theme, is_thumb));
+}
+
+TUI_style.Style thumb_look(Theme theme, bool is_thumb) {
     if (theme.is_plain) {
         return TUI_style.Style();
     }
@@ -467,4 +576,88 @@ pub TUI_style.Style thumb_style(Theme theme, bool is_thumb) {
         return TUI_style.Style(foreground: colour(mix(pal.page, pal.dim, 90)), background: colour(pal.page));
     }
     return TUI_style.Style(foreground: colour(mix(pal.page, pal.dim, 25)), background: colour(pal.page));
+}
+
+// --- transparency ---------------------------------------------------------------------
+
+/// The relative luminance of 0xRRGGBB in thousandths (sRGB approximated by squaring each
+/// channel): near-black text reads on a background above 179, near-white below it, which
+/// is where the two have the same contrast ratio.
+int luminance(int rgb) {
+    int red = channel(rgb, 16);
+    int green = channel(rgb, 8);
+    int blue = channel(rgb, 0);
+    return (299 * red * red + 587 * green * green + 114 * blue * blue) / 65025;
+}
+
+/// Near-black or near-white, whichever reads on `block` (a background); the
+/// colour itself when it cannot be told (the terminal's default).
+TUI_style.Colour readable_on(TUI_style.Colour block) {
+    int rgb = 0;
+    match (block) {
+        case Default: {
+            return block;
+        }
+        case Indexed(int index): {
+            rgb = TUI_style.palette_rgb(index);
+        }
+        case Rgb(int red, int green, int blue): {
+            rgb = red * 65536 + green * 256 + blue;
+        }
+    }
+    if (luminance(rgb) >= 179) {
+        return colour(0x101010);
+    }
+    return colour(0xf5f5f5);
+}
+
+/// What is left of `style` (of kind `kind`) when the terminal is asked to show the
+/// desktop. This is the one place that says so: a terminal paints every explicit
+/// background opaque, so only a highlight may keep one.
+///
+///   HIGHLIGHT  keeps its background and gets text that reads on it (ALL);
+///   BADGE      the block goes, its colour becomes the (bold) text colour (ALL);
+///   POPUP      loses its background in ALL and in POPUPS;
+///   SURFACE    loses its background in ALL.
+///
+/// A reversed style that is not a highlight loses its reversal (reverse video
+/// paints the terminal's text colour as a block); no colour of the desktop is
+/// ever read or mixed.
+pub TUI_style.Style transparent_style(int mode, int kind, TUI_style.Style style) {
+    if (mode == OFF) {
+        return style;
+    }
+    if (kind == HIGHLIGHT) {
+        if (mode == ALL && !style.background.eq(TUI_style.Colour.Default)) {
+            return style.with_foreground(readable_on(style.background));
+        }
+        return style;
+    }
+    if (kind == BADGE) {
+        if (mode != ALL) {
+            return style;
+        }
+        int attrs = style.attrs | TUI_style.BOLD;
+        if ((style.attrs & TUI_style.REVERSE) != 0) {
+            return TUI_style.Style(foreground: style.foreground, attrs: attrs ^ TUI_style.REVERSE);
+        }
+        if (style.background.eq(TUI_style.Colour.Default)) {
+            return style.with_attrs(attrs);
+        }
+        return TUI_style.Style(foreground: style.background, attrs: attrs);
+    }
+    if (mode == POPUPS || mode == ALL) {
+        if (kind == SURFACE && mode == POPUPS) {
+            return style;
+        }
+        int attrs = style.attrs;
+        if ((attrs & TUI_style.REVERSE) != 0) {
+            attrs = attrs ^ TUI_style.REVERSE;
+            if ((attrs & TUI_style.BOLD) == 0) {
+                attrs = attrs | TUI_style.DIM;
+            }
+        }
+        return TUI_style.Style(foreground: style.foreground, attrs: attrs);
+    }
+    return style;
 }

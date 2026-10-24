@@ -359,6 +359,10 @@ void Screen.draw_outline(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     TUI_widget.Block frame = TUI_widget.Block(borders: TUI_widget.Borders.Rounded, title: " Outline ", style: style, title_style: style.with_attrs(TUI_style.BOLD));
     frame.render(buffer, box);
     viewer.outline.style = style;
+    if (theme.transparency != MDV_theme.OFF) {
+        // The chosen row is a highlight, not reverse video (which is an opaque block).
+        viewer.outline.highlight_style = MDV_theme.select_style(theme);
+    }
     viewer.outline.render(buffer, frame.inner(box));
 }
 
@@ -584,7 +588,6 @@ void Screen.draw_palette(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     int box_x = area.x + (area.width - wide) / 2;
     int box_y = area.y + 2;
     TUI_style.Style style = MDV_theme.popup_style(theme);
-    TUI_style.Style accent = MDV_theme.accent_style(theme);
     TUI_style.Style quiet = MDV_theme.quiet_style(theme).with_background(style.background);
     TUI_geometry.Rect box = TUI_geometry.Rect(box_x, box_y, wide, tall + 3);
     buffer.fill(box, " ", style);
@@ -613,9 +616,10 @@ void Screen.draw_palette(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         TUI_style.Style row_style = style;
         TUI_style.Style keys_style = quiet;
         if (index == viewer.palette_pick) {
-            row_style = accent;
-            keys_style = accent;
-            buffer.fill(TUI_geometry.Rect(inner_x, box_y + 2 + line, inner_w, 1), " ", accent);
+            TUI_style.Style pick = MDV_theme.select_style(theme);
+            row_style = pick;
+            keys_style = pick;
+            buffer.fill(TUI_geometry.Rect(inner_x, box_y + 2 + line, inner_w, 1), " ", pick);
         }
         buffer.set_str(inner_x + 1, box_y + 2 + line, TUI_text.truncate(each.title, inner_w - 14), row_style);
         if (each.keys.size() > 0) {
@@ -752,7 +756,7 @@ pub void Screen.render(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
         if (viewer.new_theme == "next") {
             theme = MDV_theme.next_after(theme);
         } else {
-            theme = MDV_theme.named(viewer.new_theme).or(theme);
+            theme = MDV_theme.with_transparency(MDV_theme.named(viewer.new_theme).or(theme), theme.transparency);
         }
         viewer.new_theme = "";
     }
