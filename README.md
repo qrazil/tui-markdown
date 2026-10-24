@@ -46,7 +46,7 @@ that cannot be read is exit 1.
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--transparent MODE` | `on popups off` | `off`; `TUI_MARKDOWN_TRANSPARENT=1\|popups\|0` | draw on the terminal's own background (opacity, blur); see below |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.9.0` |
+| `--version` | | | `tui-markdown 0.10.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
