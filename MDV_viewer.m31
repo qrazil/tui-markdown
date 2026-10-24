@@ -142,6 +142,8 @@ pub type Viewer {
     pub bool is_scaled = false;
     pub bool is_zebra = false;
     pub bool has_numbers = false;
+    /// Cards are framed (a transparent page: see `MDV_layout.Options.is_framed`).
+    pub bool is_framed = false;
     /// Is the outline docked at the left?
     pub bool is_side_open = false;
     /// Where the header's buttons are, set by the screen on every frame.
@@ -348,7 +350,7 @@ void Viewer.ensure_doc() {
 }
 
 MDV_layout.Options Viewer.options() {
-    return MDV_layout.Options(text_width(), is_scaled: is_scaled, is_zebra: is_zebra, has_numbers: has_numbers);
+    return MDV_layout.Options(text_width(), is_scaled: is_scaled, is_zebra: is_zebra, has_numbers: has_numbers, is_framed: is_framed);
 }
 
 /// The layout for the window and the pane as they are.
@@ -365,7 +367,7 @@ MDV_model.Layout Viewer.build_layout() {
         case Live: {
             ensure_doc();
             MDV_layout.Options wanted = options();
-            if (live.serial != serial || live.width != wanted.width || live.is_scaled != wanted.is_scaled || live.is_zebra != wanted.is_zebra || live.has_numbers != wanted.has_numbers) {
+            if (live.serial != serial || live.width != wanted.width || live.is_scaled != wanted.is_scaled || live.is_zebra != wanted.is_zebra || live.has_numbers != wanted.has_numbers || live.is_framed != wanted.is_framed) {
                 MDV_live.build_cache(live, doc, buffer.lines, wanted, serial);
             }
             live_active = MDV_live.block_at(live, buffer.caret.row);

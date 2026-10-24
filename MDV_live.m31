@@ -208,6 +208,7 @@ pub type LiveCache {
     pub bool is_scaled = false;
     pub bool is_zebra = false;
     pub bool has_numbers = false;
+    pub bool is_framed = false;
 }
 
 bool is_blank(str line) {
@@ -221,6 +222,7 @@ pub void build_cache(LiveCache cache, MDV_model.Document doc, List<str> lines, M
     cache.is_scaled = options.is_scaled;
     cache.is_zebra = options.is_zebra;
     cache.has_numbers = options.has_numbers;
+    cache.is_framed = options.is_framed;
     cache.firsts = [];
     cache.lasts = [];
     cache.parts = [];

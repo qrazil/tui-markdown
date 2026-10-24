@@ -29,6 +29,10 @@ pub type Options {
     pub bool is_zebra = false;
     /// Line numbers in code cards.
     pub bool has_numbers = false;
+    /// Code and metadata cards are drawn with a box-drawing rule above and below and a bar
+    /// at the left, for a terminal that shows the desktop through the page: the card's tint
+    /// is not there to tell it from the text.
+    pub bool is_framed = false;
 }
 
 /// Rows and the headings found among them, rows counted from this part's own
@@ -334,10 +338,10 @@ Part code(Context context, MDV_model.CodeBlock block, int width) {
     // The top row carries the language chip slot the right.
     List<MDV_model.Span> top = [];
     if (language.size() > 0 && width > language.size() + 4) {
-        top.push(chrome(spaces(width - language.size() - 2), fill));
+        top.push(chrome(rule_text(context, "\u{256d}", width - language.size() - 2), edge_bits(context, fill)));
         top.push(chrome(" " + language + " ", fill | MDV_model.CHIP));
     } else {
-        top.push(chrome(spaces(width), fill));
+        top.push(chrome(rule_text(context, "\u{256d}", width), edge_bits(context, fill)));
     }
     lines.push(top);
     for (int index in 0 .. block.lines.size()) {
@@ -352,7 +356,7 @@ Part code(Context context, MDV_model.CodeBlock block, int width) {
         }
         bool is_first = true;
         for (List<MDV_model.Span> piece in cut_spans(shown, inner)) {
-            List<MDV_model.Span> spans = [chrome("  ", fill)];
+            List<MDV_model.Span> spans = [side_bar(context, fill)];
             if (gutter > 0) {
                 str number = "";
                 if (is_first) {
@@ -367,8 +371,36 @@ Part code(Context context, MDV_model.CodeBlock block, int width) {
             lines.push(filled(spans, width, fill));
         }
     }
-    lines.push([chrome(spaces(width), fill)]);
+    lines.push([chrome(rule_text(context, "\u{2570}", width), edge_bits(context, fill))]);
     return leaf(context, lines, block.line, plain.join("\n"));
+}
+
+/// The top or bottom row of a card, `width` columns: blank when the card is tinted, a
+/// rounded corner and a rule when it is framed.
+str rule_text(Context context, str corner, int width) {
+    if (!context.options.is_framed) {
+        return spaces(width);
+    }
+    if (width < 1) {
+        return "";
+    }
+    return corner + DASH.repeat(width - 1);
+}
+
+/// The bits of a card's top or bottom row: the fill, or a dim border when framed.
+int edge_bits(Context context, int fill) {
+    if (context.options.is_framed) {
+        return MDV_model.BORDER;
+    }
+    return fill;
+}
+
+/// The two columns before a card's text: blank, or a bar when framed.
+MDV_model.Span side_bar(Context context, int fill) {
+    if (context.options.is_framed) {
+        return chrome("\u{2502} ", MDV_model.BORDER);
+    }
+    return chrome("  ", fill);
 }
 
 /// The label of a fence: its first word.
@@ -386,22 +418,22 @@ str codelang(str info) {
 Part meta(Context context, MDV_model.MetaBlock block, int width) {
     int fill = MDV_model.META | MDV_model.DECO;
     List<List<MDV_model.Span>> lines = [];
-    List<MDV_model.Span> top = [chrome(spaces(width - 10), fill), chrome(" metadata ", fill | MDV_model.CHIP)];
+    List<MDV_model.Span> top = [chrome(rule_text(context, "\u{256d}", width - 10), edge_bits(context, fill)), chrome(" metadata ", fill | MDV_model.CHIP)];
     if (width <= 12) {
-        top = [chrome(spaces(width), fill)];
+        top = [chrome(rule_text(context, "\u{256d}", width), edge_bits(context, fill))];
     }
     lines.push(top);
     for (str each in block.lines) {
         MDV_model.Span whole = MDV_model.Span(expand_tabs(each), style: MDV_model.META | MDV_model.DECO);
         for (List<MDV_model.Span> piece in cut_spans([whole], width - 4)) {
-            List<MDV_model.Span> spans = [chrome("  ", fill)];
+            List<MDV_model.Span> spans = [side_bar(context, fill)];
             for (MDV_model.Span span in piece) {
                 spans.push(span);
             }
             lines.push(filled(spans, width, fill));
         }
     }
-    lines.push([chrome(spaces(width), fill)]);
+    lines.push([chrome(rule_text(context, "\u{2570}", width), edge_bits(context, fill))]);
     return leaf(context, lines, block.line, "");
 }
 
