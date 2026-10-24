@@ -30,6 +30,7 @@ args.Parser parser() {
     cli.flag("dump", help: "print the page as the screen shows it (theme background, margins) at --width, with no terminal needed");
     cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N", min: "0");
     cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
+    cli.value("transparent", help: "draw on the terminal's own background, for a terminal with opacity or blur: on (every surface), popups (popups and bars over the page only) or off (default; TUI_MARKDOWN_TRANSPARENT=1|popups|0 does the same; docs/TRANSPARENCY.md)", placeholder: "MODE");
     cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (from the environment: kitty)", placeholder: "MODE");
     cli.value("links", help: "OSC 8 hyperlinks: on, off or auto (from the environment: not Terminal.app or a dumb terminal)", placeholder: "MODE");
     cli.value("sync", help: "synchronized output (DEC 2026, asked of the terminal first): on, off or auto", placeholder: "MODE");
@@ -101,6 +102,19 @@ MDV_theme.Theme pick_theme(args.Parsed given) {
         return MDV_theme.light();
     }
     return MDV_theme.dark();
+}
+
+/// The transparency asked for: `--transparent`, else `TUI_MARKDOWN_TRANSPARENT`, else off.
+/// `refuse_values` has already said no to a word that is neither.
+int pick_transparency(args.Parsed given) {
+    match (given.value("transparent")) {
+        case Some(str mode): {
+            return MDV_theme.mode_of(mode);
+        }
+        case None: {
+        }
+    }
+    return MDV_theme.mode_of(os.env("TUI_MARKDOWN_TRANSPARENT").or(""));
 }
 
 /// What a switch (`--scale`, `--links`) comes to: `on` and `off` are what they
@@ -229,17 +243,23 @@ int text_width(int width, int max_width) {
     return text;
 }
 
+/// Are cards drawn with a frame? Only when every surface is transparent (the tint that told a
+/// card from the text is gone), and not in the plain theme, which never had one.
+bool is_framed(MDV_theme.Theme theme) {
+    return theme.transparency == MDV_theme.ALL && !theme.is_plain;
+}
+
 bytes print_one(str text, Look look) {
     if (look.is_dump) {
         int wide = text_width(look.width, look.max_width);
-        MDV_layout.Options options = MDV_layout.Options(wide, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers);
+        MDV_layout.Options options = MDV_layout.Options(wide, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers, is_framed: is_framed(look.theme));
         int left = (look.width - 1 - wide) / 2;
         if (left < 1) {
             left = 1;
         }
         return MDV_cat.dump(text, options, look.theme, look.caps, left, look.width);
     }
-    MDV_layout.Options options = MDV_layout.Options(look.width, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers);
+    MDV_layout.Options options = MDV_layout.Options(look.width, is_scaled: look.caps.has_scale, is_zebra: look.is_zebra, has_numbers: look.has_numbers, is_framed: is_framed(look.theme));
     return MDV_cat.render_with(MDV_layout.layout_with(MDV_prepare.prepare(text), options), look.theme, look.caps, 0, 0);
 }
 
@@ -305,6 +325,7 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
             viewer.is_scaled = look.caps.has_scale;
             viewer.is_zebra = look.is_zebra;
             viewer.has_numbers = look.has_numbers;
+            viewer.is_framed = is_framed(look.theme);
             viewer.is_side_open = is_side;
             viewer.resize(size.columns, size.rows);
             viewer.relayout();
@@ -347,6 +368,18 @@ str refuse_values(args.Parsed given) {
         }
         case None: {
         }
+    }
+    match (given.value("transparent")) {
+        case Some(str mode): {
+            if (MDV_theme.mode_of(mode) < 0 || mode == "1" || mode == "0" || mode.to_lower() == "true" || mode.to_lower() == "false" || mode.to_lower() == "all" || mode == "") {
+                return "'--transparent' needs on, popups or off, and got '" + mode + "'";
+            }
+        }
+        case None: {
+        }
+    }
+    if (MDV_theme.mode_of(os.env("TUI_MARKDOWN_TRANSPARENT").or("")) < 0) {
+        return "TUI_MARKDOWN_TRANSPARENT is 1, popups or 0, and got '" + os.env("TUI_MARKDOWN_TRANSPARENT").or("") + "'";
     }
     List<str> switches = ["scale", "links", "sync"];
     for (str name in switches) {
@@ -432,7 +465,7 @@ pub int run(List<str> argv) {
             }
             bool is_dump = given.is_flag_set("dump");
             bool is_interactive = !is_dump && !given.is_flag_set("cat") && TUI_app.pick_input_fd(TUI_app.INPUT_AUTO, term.is_terminal(0), term.is_terminal(1)) >= 0 && term.is_terminal(1);
-            Look look = Look(pick_theme(given), pick_caps(given, is_interactive), given.integer("width").or(0), given.integer("max-width").or(MDV_viewer.MAX_TEXT_WIDTH), is_dump, given.is_flag_set("zebra"), given.is_flag_set("numbers"));
+            Look look = Look(MDV_theme.with_transparency(pick_theme(given), pick_transparency(given)), pick_caps(given, is_interactive), given.integer("width").or(0), given.integer("max-width").or(MDV_viewer.MAX_TEXT_WIDTH), is_dump, given.is_flag_set("zebra"), given.is_flag_set("numbers"));
             look.is_smart = given.is_flag_set("smart");
             if (given.is_flag_set("edit")) {
                 look.pane = "live";
