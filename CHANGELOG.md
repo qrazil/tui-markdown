@@ -4,6 +4,31 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.10.0
+
+Transparent terminals. Pins tui v0.15.0 (unchanged). Built and tested against m31 v0.9.0.
+
+- **`--transparent on|popups|off`** and `TUI_MARKDOWN_TRANSPARENT=1|popups|0` (flag wins; default off): a terminal shows the
+  desktop through a cell only when its background is the terminal's default, so with `on` the viewer writes no background
+  anywhere except under a highlight (search hits, the focused link, the editor's selection, a chosen row of the outline and
+  the palette), whose text colour is chosen to read on it. `popups` does it for the popups and bars over the page only.
+  Badges (labels, the open tab, the current heading) become bold coloured text; reversed bars become dim or bold text.
+  `docs/TRANSPARENCY.md` has the rule and the per-surface table.
+- **One resolver**: `MDV_theme.transparent_style` is applied to every style that leaves `MDV_theme`; no colour of the desktop
+  is read or mixed. `Theme.transparency`, `MDV_theme.select_style` and `with_transparency` are new; the theme button keeps the
+  mode.
+- **Cards without tints**: with `on`, code and metadata cards are drawn framed (rounded corner and rule above and below, a
+  bar at the left; `MDV_layout.Options.is_framed`): same rows, widths and text. Quotes and callouts keep their bar, tables
+  their borders, `--zebra` rows are dim.
+- Off is the 0.9.0 output, byte for byte: `--cat` / `--dump` of every theme at 16, 256 and 24 bits, and a scripted viewer
+  session on a pty (`tests/default_bytes.py`, `tests/pty_transparent.py`, with the recorded hashes in `tests/golden/`).
+- Tests: `tests/t_theme.m31` (the resolver for all themes and modes, the card frame), `tests/pty_transparent.py` (pyte:
+  no cell with a background outside the highlights, no background SGR in a step without one, in the page, help, outline,
+  search, link focus, sidebar, editor, scaled heading and reload), `tests/test_cli.sh` (the option's grammar and the
+  completion scripts as goldens).
+- No short form (`--theme` has none; Oro's table gives them to options used on every run); no image overlay (the viewer
+  has none: images are `[image: alt]` text).
+
 ## 0.9.0
 
 Pins tui v0.15.0 (f7c9189; its CHANGELOG has 0.14.0 and 0.15.0). Built and tested against m31 v0.9.0.

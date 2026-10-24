@@ -231,6 +231,21 @@ block. The block plus the row's offset inside the block (`Anchor`) keeps the
 place across a resize; the line keeps it across a reload; both go into a
 back-stack `Place`.
 
+### Transparency (`MDV_theme.transparent_style`)
+
+A terminal paints every explicit background opaque, so the theme's tints (page, bars, quote, card, band) hide a translucent
+window. `Theme.transparency` (off, on, popups) makes every style that leaves `MDV_theme` go through one function that
+classifies it: highlight (keeps its background, text chosen to read on it), badge (block becomes bold coloured text), popup
+(background dropped in on and popups), surface (dropped in on). Nothing outside the module builds a colour, and no colour of
+the desktop is ever read: the terminal's own default colours are the only thing left. Off returns every style untouched, so
+the default output is the 0.9.0 output (`tests/default_bytes.py`). The one surface a tint alone distinguished was the code
+(and metadata) card, so `Options.is_framed` draws it with a rule above and below and a bar at the left in the rows it
+already had (same layout, same text, DECO chrome); quotes and callouts had a bar, tables their borders. Decisions: the
+option is a value option (`--transparent MODE`) like `--scale`, because Oro's grammar has no optional value and no `--no-x`;
+no short form, as for `--theme`; the environment variable takes `1|popups|0`; cards are framed only for `on` and never in the
+plain theme; the viewer has no bitmap images (only the `[image: alt]` placeholder), so there is no image overlay to treat.
+`docs/TRANSPARENCY.md` has the per-surface table.
+
 ## The viewer (`MDV_viewer`)
 
 `Viewer` is the whole state: `top` row, pending count and `g`/`]`/`[` prefix,
@@ -312,6 +327,7 @@ way to write raw bytes between frames and no escape wait. The settings are
 | Layout | goldens (`--cat --theme plain`), plus a Python check that no line exceeds its width in columns |
 | Viewer | 160 direct checks on the state machine |
 | Whole program | a pty with a screen emulator: the checks read what is on the screen, not bytes |
+| Transparency | the resolver for every theme and mode (`t_theme.m31`); on a pty, no cell with a background outside a highlight and no background SGR in a step without one; the default output and session bytes against the 0.9.0 binary |
 
 The oracle found a real bug during development: image alt text was entirely
 decoration, so it could not be searched or copied. Only the brackets are

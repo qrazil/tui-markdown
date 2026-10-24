@@ -44,6 +44,7 @@ that cannot be read is exit 1.
 | `--cat`, `--c` | switch | off; implied when stdout is not a terminal | print the rendering and exit |
 | `--width N`, `--w` | integer >= 1 | the terminal's width, else 80 | columns for `--cat` and `--dump` |
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
+| `--transparent MODE` | `on popups off` | `off`; `TUI_MARKDOWN_TRANSPARENT=1\|popups\|0` | draw on the terminal's own background (opacity, blur); see below |
 | `--no-watch` | switch | off | do not reload when the file changes |
 | `--version` | | | `tui-markdown 0.9.0` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
@@ -87,6 +88,14 @@ anything non-empty, else `dark`. In the viewer, `t` or a click on the theme
 name in the header switches to the next one. Colours are 24-bit and fold
 down to 256 or 16 colours on terminals that have no more; `--colors
 16|256|24bit` forces it.
+
+### Transparent terminals
+
+`--transparent on` (or `TUI_MARKDOWN_TRANSPARENT=1`) draws no background anywhere, so a terminal with opacity or blur
+(rio, Alacritty, kitty, Terminal.app) shows the desktop through the page, the bars, the sidebar and the popups; `popups`
+does it for the popups and bars over the page only. A search hit, the focused link and the editor's selection keep a
+background so they stay visible; code cards get a box-drawing frame instead of a tint, quotes keep their bar, badges become
+bold coloured text. It is off by default, and then the output is byte-identical to 0.9.0. See `docs/TRANSPARENCY.md`.
 
 ### What the terminal gets
 
@@ -295,7 +304,7 @@ changes proposed to term-markdown.
 
 ## Tests
 
-`tests/test.sh` is the one entry point (about 390 checks):
+`tests/test.sh` is the one entry point (about 920 checks):
 
 - `t_viewer.m31`: the state machine (160 checks).
 - `oracle.py` + `t_oracle.m31`: the visible text of the layout equals the text
@@ -304,6 +313,10 @@ changes proposed to term-markdown.
   `BLESS=1 bash tests/test.sh` rewrites them; read the diff.
 - `pty_e2e.py`: the real binary under a pty with a small terminal emulator, 73
   checks.
+- Transparency: `t_theme.m31` (the style resolver, every theme), `default_bytes.py` (the default `--cat` / `--dump`
+  bytes are 0.9.0's), `pty_transparent.py` (a transparent page has no background outside a highlight, and the default
+  session writes 0.9.0's bytes). `TUI_MARKDOWN_BASELINE=/path/to/0.9.0-binary` compares against a live build instead of
+  the recorded hashes; `PTY_BLESS=1` / `PY_BLESS=1` with it rewrites them.
 
 ## Release
 
