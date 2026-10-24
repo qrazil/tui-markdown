@@ -30,7 +30,7 @@ args.Parser parser() {
     cli.flag("dump", help: "print the page as the screen shows it (theme background, margins) at --width, with no terminal needed");
     cli.integer("max-width", help: "widest text column, 0 for the whole window (default 100)", placeholder: "N", min: "0");
     cli.value("theme", help: "dark, light, tokyonight, nightfox, gruvbox-material or plain (default: from COLORFGBG; plain when NO_COLOR is set)", placeholder: "NAME");
-    cli.value("transparent", help: "draw on the terminal's own background, for a terminal with opacity or blur: on (every surface), popups (popups and bars over the page only) or off (default; TUI_MARKDOWN_TRANSPARENT=1|popups|0 does the same; docs/TRANSPARENCY.md)", placeholder: "MODE");
+    cli.value("transparent", help: "draw on the terminal's own background (opacity, blur): on, popups (popups and bars) or off (default; TUI_MARKDOWN_TRANSPARENT=1|popups|0)", placeholder: "MODE");
     cli.value("scale", help: "H1 as scaled text (OSC 66): on, off or auto (from the environment: kitty)", placeholder: "MODE");
     cli.value("links", help: "OSC 8 hyperlinks: on, off or auto (from the environment: not Terminal.app or a dumb terminal)", placeholder: "MODE");
     cli.value("sync", help: "synchronized output (DEC 2026, asked of the terminal first): on, off or auto", placeholder: "MODE");

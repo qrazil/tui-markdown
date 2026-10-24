@@ -1,0 +1,288 @@
+ddaeb87e9750bd225fcfa084e5d0a94d4a3327c82a0291a0d0b2c7150437a9ce --cat --width 60 --theme dark --colors 16 tour.md
+32550de11a3ecd71cc7103d28f3e0012f7c01d4c0338db79839633890fa401e5 --dump --width 60 --theme dark --colors 16 tour.md
+f2e317bb252cd8a27fd13eeaa69e1550d1e35bcf486dd32f378d28d037682604 --cat --width 60 --theme dark --colors 16 rich.md
+f71ec461ed9a3419a54fb0809e65d952789dfa72db41f4d7829b54f9a786dc95 --dump --width 60 --theme dark --colors 16 rich.md
+8c7a48cddf25575163902ebad54a9f73c9975fec459de78936e57536738957c1 --cat --width 60 --theme dark --colors 16 unicode.md
+31d06e7ced11eba719a44f33174fba81695866ce740e152a21c3ad2c5229f7d1 --dump --width 60 --theme dark --colors 16 unicode.md
+c45b3782ac7c5e487a6ef260120f36f07a7ede0576d766415cabb6c8e3aefc30 --cat --width 60 --theme dark --colors 16 other.md
+2fa3fe88339ef5350bf3c52e85b5c8d9b1550a5cf128a46084afbdb964519201 --dump --width 60 --theme dark --colors 16 other.md
+0bb25070c883683fb2cd48f3b7d62da9e23dd88e16255d3ba9bd2a0076c56b09 --cat --width 60 --theme dark --colors 16 --zebra --numbers tour.md
+2004706190213fbb1ad3bd4bfc40f5898ae296b331f6b2a716dcacfecc1c3c81 --dump --width 60 --theme dark --colors 16 --zebra --numbers tour.md
+c7d4a7b8fdacb3814343556c4c63cc61c9bdcc5eeefa81ce576ff8df238c2914 --cat --width 60 --theme dark --colors 16 --zebra --numbers rich.md
+4ecafbfe6353766c2c12f83558aaf34d8fd858d8e5b2c9ed6023a76e300ee983 --dump --width 60 --theme dark --colors 16 --zebra --numbers rich.md
+d1c4babab02b84923d16df9b801fe7e4a7f943f316add35c661dabc317b4e1b7 --cat --width 60 --theme dark --colors 16 --scale on --links on --zebra --numbers tour.md
+849611a8716951b9bd91d83de5dbceb087cb3e93a1223f1d4e01bec5b8f9343d --dump --width 60 --theme dark --colors 16 --scale on --links on --zebra --numbers tour.md
+1846fa3f423c894a7df0947b0cff3b923d9fba974abaca50b9f2a21ed2e37f27 --cat --width 60 --theme dark --colors 16 --scale on --links on --zebra --numbers rich.md
+0b5eaf6b0e7677d827442009c97b1f75ded45fb7022ea7b4f0ba3e36e5b86f88 --dump --width 60 --theme dark --colors 16 --scale on --links on --zebra --numbers rich.md
+4db838c343b4c7c7ed3cc74d28744dbf7083d18afe906f0f845555dc98865c0b --cat --width 60 --theme dark --colors 256 tour.md
+192302efedb5487a57d1f036880623d76cae6aea9c02141b193f1ff4ea643e24 --dump --width 60 --theme dark --colors 256 tour.md
+4f9406875c77566b75468f632a9ad157c8f259533bff6b1d1b5aad3a2bb03044 --cat --width 60 --theme dark --colors 256 rich.md
+8c3f6f4da4b904c1da5d7493448a524216e2aee979c41e7216d4938f080bd78d --dump --width 60 --theme dark --colors 256 rich.md
+43d9aa3a64840a5a2d117e047fad20d47a0f8dc53ab9e97147644ba8cbb5fb4d --cat --width 60 --theme dark --colors 256 unicode.md
+4b2f2b47bfc5994b5f38039319c72f9f8ba73b4c49812efce5679f7783b0f9ca --dump --width 60 --theme dark --colors 256 unicode.md
+afbdce93b60f7134a474bfd08ba9e30c495734cf42fab3323d1f61360b53cb21 --cat --width 60 --theme dark --colors 256 other.md
+3b8e51f8b9e392a810bd648667b5b7b2a376b4c2802286673e994c693a3e743d --dump --width 60 --theme dark --colors 256 other.md
+9ac1d54b84d97e489b001cb634fd0b380151d779138c481e79188ca51391c8be --cat --width 60 --theme dark --colors 256 --zebra --numbers tour.md
+868616318fb62452dfcc1ba3b600b63dfac0e94ead52030c871acbb5bae2b788 --dump --width 60 --theme dark --colors 256 --zebra --numbers tour.md
+639b0fece6b9f9461818de2e5b0db8f0bf06a4208b623c5b0fe1c141379c803c --cat --width 60 --theme dark --colors 256 --zebra --numbers rich.md
+a1785f377975e953ae105e972a441dc9b441b3d9399bab2cc6ff68652daa5ae1 --dump --width 60 --theme dark --colors 256 --zebra --numbers rich.md
+c4c8bdff188f0848e9d834a414431e29ebd96238054997526baf04f7e4fb565c --cat --width 60 --theme dark --colors 256 --scale on --links on --zebra --numbers tour.md
+69eb7791a2e1acdeca43f6cc91d739afb10c671ea2fdf925d9fc6d83279e574b --dump --width 60 --theme dark --colors 256 --scale on --links on --zebra --numbers tour.md
+ee161076d8f2d420b186913b31005482baa232cc94dfb0f77fa9abd9164b5de8 --cat --width 60 --theme dark --colors 256 --scale on --links on --zebra --numbers rich.md
+fc51e2c5dc431d662880e5ef0a8d5964ab428feef14a583cc3821ef706789455 --dump --width 60 --theme dark --colors 256 --scale on --links on --zebra --numbers rich.md
+e5b46421a4d88a829ef4423866d864b8c15f5d708b6bb6c35de28a40a56d4a3a --cat --width 60 --theme dark --colors 24bit tour.md
+33bab5fa34052419a46ca423ad6d125c4006e63261add6ef61c91bd41c519df1 --dump --width 60 --theme dark --colors 24bit tour.md
+3e49c1105fc62c5c568232b6e28f7737081fb98f8fc9b876db9aea26ea4a3e89 --cat --width 60 --theme dark --colors 24bit rich.md
+f88d857a9ae61c5ec46121dfe26a12b1cb45627219af5433c9d687fb29195c90 --dump --width 60 --theme dark --colors 24bit rich.md
+b8635145b4b4005a53a8cc71531c15006211ea93bb2ab80c11204e2c5f3e5346 --cat --width 60 --theme dark --colors 24bit unicode.md
+9b61405c56e5b8697547b90d58584c8daef90b0e0f823e366001846c9f62aa50 --dump --width 60 --theme dark --colors 24bit unicode.md
+e691df0e11cb100c39abbdef11b63d01031c5e05b93539dc10f1b8a35e0b83d3 --cat --width 60 --theme dark --colors 24bit other.md
+820fb1f69487f11040b617ca537389180d6708c4b4f322cbc91b701f1ddf3c04 --dump --width 60 --theme dark --colors 24bit other.md
+540cd9efc153d6f724232aa738c6c33ae19a3d9ffcef341f325effffcbc4a54c --cat --width 60 --theme dark --colors 24bit --zebra --numbers tour.md
+2412f4ef4f978a58d60f88b2bf830dfe968357e7c3d24d173ed7d8813270c7e6 --dump --width 60 --theme dark --colors 24bit --zebra --numbers tour.md
+784cc34d48ca283e23f2b700bf0cf8a0f1541be945a66b5abfb240e1a5e74d20 --cat --width 60 --theme dark --colors 24bit --zebra --numbers rich.md
+9bce7bf3c8c9fff9866bad15c9f85db142c264ffffcd6df83b6dcb9f12182ae3 --dump --width 60 --theme dark --colors 24bit --zebra --numbers rich.md
+375da778ff4540c094373876238e3b1719097a24aaad149c57a8ee75bbf70594 --cat --width 60 --theme dark --colors 24bit --scale on --links on --zebra --numbers tour.md
+5b8bf6b81ba01a0ad1b849ed5ab1d1a5bdbd96772859dfb418784200b86c6c81 --dump --width 60 --theme dark --colors 24bit --scale on --links on --zebra --numbers tour.md
+549d39c98152ea6028696d2cebe63bf9a4e7286411c36d19e7a58e179a644027 --cat --width 60 --theme dark --colors 24bit --scale on --links on --zebra --numbers rich.md
+861f50d92399eff748f5061a9c5176badfc73d3ae389a87a48f93d66bd739b10 --dump --width 60 --theme dark --colors 24bit --scale on --links on --zebra --numbers rich.md
+0254fd1868fd5576449878512bf8b59b5876236fe84b7e4648a7a36144d5dc33 --cat --width 60 --theme light --colors 16 tour.md
+82b4a840ea797421e475d9fd9108b14808030b3228df138df553d993c6b22623 --dump --width 60 --theme light --colors 16 tour.md
+61f17a2f582b03934b8ca76dd6a3daa774d67ae26d6c905c31bb0db9d5d98f71 --cat --width 60 --theme light --colors 16 rich.md
+340e714662eec2f17a7a983d274f60624d1ba3bdf10ece24576fb88b385e94e7 --dump --width 60 --theme light --colors 16 rich.md
+38261aa47de98df4bf5e1ae432b7062cc86fc83137193a0905e34d25a8d6232f --cat --width 60 --theme light --colors 16 unicode.md
+7ee8346c15152e19aa83cd6eb6bb54ff8554689848c093d63538ea086f433dfe --dump --width 60 --theme light --colors 16 unicode.md
+d577b012aa23a7f1a3d21d1379023d1465649ded3d3047f8546df9627539be36 --cat --width 60 --theme light --colors 16 other.md
+b36074e385757a441c86fd0978ace7c1a7dc9edc604cbadf3f3f104b51ccef7b --dump --width 60 --theme light --colors 16 other.md
+0723500bad55b7762e1d96f658d2a05d8a6d203f566a39c76874a9f7e67506cd --cat --width 60 --theme light --colors 16 --zebra --numbers tour.md
+40addf94f35c94c8ece5280627a048072470d583c44780f33629d5cdeb75d8e8 --dump --width 60 --theme light --colors 16 --zebra --numbers tour.md
+944be77050113a25695cb0c5d817b6a4d138886e63b7cf76d779182e62681dec --cat --width 60 --theme light --colors 16 --zebra --numbers rich.md
+6f1ba6a5d955ba3fb0643ef1cd8a8f4defbf9cdb14fc7f3147ea003315267c79 --dump --width 60 --theme light --colors 16 --zebra --numbers rich.md
+0f2dbb02968085e96698b743ca49ae1a2df015f816b74ff11ad7c49e0972712d --cat --width 60 --theme light --colors 16 --scale on --links on --zebra --numbers tour.md
+0d133f628fcf935aa8d001f1d846db95cbed3e5005c75295c14ebcd38e08b4a1 --dump --width 60 --theme light --colors 16 --scale on --links on --zebra --numbers tour.md
+8949baffa0ea71b5cc6032a7bbf164bfc563f7187f18f27d6b5c5dbe322b1bee --cat --width 60 --theme light --colors 16 --scale on --links on --zebra --numbers rich.md
+32b335034afaf2fcf18fee9b8c4fcca2844d6d636099d7badf30a2be65223a41 --dump --width 60 --theme light --colors 16 --scale on --links on --zebra --numbers rich.md
+0c5f0725a21562b53636801ed3dfa353c2f223f977b40af4e88aa738d477037c --cat --width 60 --theme light --colors 256 tour.md
+d0e3933a928030c505f335951ce06e0fc6dcda0552d47f8869a46983e924df44 --dump --width 60 --theme light --colors 256 tour.md
+783de8d2b1b42a82fb5b7218ab0a8c1079e61876d0738c3eaa9bfe1e4d30a459 --cat --width 60 --theme light --colors 256 rich.md
+804108586d1c741708fbebe03dd610d4f34fc8c1b66a0007b228897e42e1e472 --dump --width 60 --theme light --colors 256 rich.md
+954ec251559ca9fcd7881a4efb9f8abee45de837b6b73be7a9d06b7fb86aa553 --cat --width 60 --theme light --colors 256 unicode.md
+4905cc9550b160326b6d3b0ce2fd11495100228cbf813ca4f881bea377991590 --dump --width 60 --theme light --colors 256 unicode.md
+de3125bef87f9adbb55b2004b066d45cff0022fdd220c4e22b533a2579f6d87a --cat --width 60 --theme light --colors 256 other.md
+fbbc2fd39f2e31a1a5b38c31a2e17393152fc037ec3005e6bccb249a44c4bebb --dump --width 60 --theme light --colors 256 other.md
+71a9a258580ab38a057ec2b9620bb2906d812b46e54d1b61c9ae156963200e99 --cat --width 60 --theme light --colors 256 --zebra --numbers tour.md
+8b3aed14300b35414828a38f2ca072f9eaa261c4c40c2daab2582cb41ebf2469 --dump --width 60 --theme light --colors 256 --zebra --numbers tour.md
+750d82653941850d2daab8b888102405fe7d1cee2a28e130bc33fc2676e36b89 --cat --width 60 --theme light --colors 256 --zebra --numbers rich.md
+9f53cde9c25ed1a65c559bb667bc880ec55b69bfb57b253cb222cd9601218703 --dump --width 60 --theme light --colors 256 --zebra --numbers rich.md
+468b7d787d09d3876e96e4c5fc252d6e6d1c089f727eae368538bda1032e9fcd --cat --width 60 --theme light --colors 256 --scale on --links on --zebra --numbers tour.md
+9ed67a66ac7faac39965da4416550c3e9cfe4d117746f59b235323f3e8497b89 --dump --width 60 --theme light --colors 256 --scale on --links on --zebra --numbers tour.md
+188ccb9b80a872bf071d1ec748a4a95c4c5467a4b5217a8bda470169125da39b --cat --width 60 --theme light --colors 256 --scale on --links on --zebra --numbers rich.md
+0d7cff43fb7f0e17d65d61b8fae402883fea5ac87f7b696ce05b2dd72d0d6ce1 --dump --width 60 --theme light --colors 256 --scale on --links on --zebra --numbers rich.md
+f9cc3a1bd96705599fc4c7eb04dfdb79f25c35accc701b0062a043405089d791 --cat --width 60 --theme light --colors 24bit tour.md
+577f806e5b0fec10e46972c4ef52a4f6d7a7a71e291ad2259a3382b8c3c208d2 --dump --width 60 --theme light --colors 24bit tour.md
+e7200ea7e2b92a67d4ecdde5469d668bf68f5b2610216fccdeba6fe87a17f3c6 --cat --width 60 --theme light --colors 24bit rich.md
+f6b7a7e8ceeda94406c8b3801f34c5bb38e8426d17f1ca095073aa21840189e2 --dump --width 60 --theme light --colors 24bit rich.md
+f803e228487b00b5bbaeac1aee994f8c8ed9a42a3a9a5b6eaf39b09bf44f5a6f --cat --width 60 --theme light --colors 24bit unicode.md
+060384ca93d2873abaed5513bac01e7fa481c93aa905d8e75389042339365fa9 --dump --width 60 --theme light --colors 24bit unicode.md
+34c69487b4e0b529229acb07ade08eb909aa5b6176aac244df31ccba7b39cd5d --cat --width 60 --theme light --colors 24bit other.md
+8a59065a09db2dcae83fcdbc26509d9a1963d22d340da3ec72c3afe71092b1c2 --dump --width 60 --theme light --colors 24bit other.md
+e10d1581be97f606b935be3f949a7a3b921540d0c3f03dae4621d95599ff3464 --cat --width 60 --theme light --colors 24bit --zebra --numbers tour.md
+f2a6c9adc1eadf6bff0321ccab4f76e801323593ba219be7129c6b83fea7c267 --dump --width 60 --theme light --colors 24bit --zebra --numbers tour.md
+542cb70bfc6658f269ae94a781d69e186da9c277849127a9bcf1583ab6e2c177 --cat --width 60 --theme light --colors 24bit --zebra --numbers rich.md
+7fa11939b27963df05a06acb9f7c69fca317884fafdf66394281fae6b4658ba3 --dump --width 60 --theme light --colors 24bit --zebra --numbers rich.md
+2d0a7cff59729403058b13fd60984b26d029d0797a270a2c240641aaef00ce7b --cat --width 60 --theme light --colors 24bit --scale on --links on --zebra --numbers tour.md
+27d9b63bfd78385cf7d62596496f034e9a4aba8442bd52bf56e4b4e7ec26e14a --dump --width 60 --theme light --colors 24bit --scale on --links on --zebra --numbers tour.md
+a1c0bfb10b78dc3569acc9d0aa8a64c89ea775fba7667e0d9d20643f18e978fb --cat --width 60 --theme light --colors 24bit --scale on --links on --zebra --numbers rich.md
+7bfa4c0107ddf857f92261b3f4941a83fa428235f4d676d7e93d5832f8ac4548 --dump --width 60 --theme light --colors 24bit --scale on --links on --zebra --numbers rich.md
+4f4f74b086da280b0115e9eebb1ab7bf3bf4c33473bbe9ebb3b82a86e0d31f4e --cat --width 60 --theme tokyonight --colors 16 tour.md
+4245e2baa7f2dc0f8586d1759238a9956f5fd76c55e13500f05a70c5a6657b48 --dump --width 60 --theme tokyonight --colors 16 tour.md
+57f030fa592866f7ed0c4694a3a421efbd55a98687df92c433cbad86f61a6e0a --cat --width 60 --theme tokyonight --colors 16 rich.md
+1b477408724ee0a7b63cdbbbb0a537a873abb69ea304ce99e9d35f131aa7222a --dump --width 60 --theme tokyonight --colors 16 rich.md
+8efd733d7d5cda24311c0d006d769d0dfc3c33130d13227e9ec7b87bf9bba20a --cat --width 60 --theme tokyonight --colors 16 unicode.md
+a318639bb5ee8c45d9d7c2c99cf6175ce076db9f7f8601f95e993cc6d4375be9 --dump --width 60 --theme tokyonight --colors 16 unicode.md
+c67836f72479c9e62e1e4f4f258fed803fcda064b2c438b0b6d5ffdcabce1764 --cat --width 60 --theme tokyonight --colors 16 other.md
+b38df228b8d03bcc59118955ff95c0b655239b70072507737abe793dd2033833 --dump --width 60 --theme tokyonight --colors 16 other.md
+be6834b071274db8b446653e341114c8d35718cdd91aba679233c45e38085b13 --cat --width 60 --theme tokyonight --colors 16 --zebra --numbers tour.md
+89a4bbfb6168be3d912a05e29783ce196ef3c1c35b78d2cd5a99323db7791c77 --dump --width 60 --theme tokyonight --colors 16 --zebra --numbers tour.md
+53acfd1da63c1af4fde847d8f7b5c7c18bf3755456ebb3b39f666f6c1c6a0c22 --cat --width 60 --theme tokyonight --colors 16 --zebra --numbers rich.md
+cbf0e3188651277645b8d1b163568fd588bf3463ccdc63e8619ba49786b835fa --dump --width 60 --theme tokyonight --colors 16 --zebra --numbers rich.md
+d36da6552d3d215e0355866ea8ed0027be660ba5c55f7f70545dacc6379c395c --cat --width 60 --theme tokyonight --colors 16 --scale on --links on --zebra --numbers tour.md
+1bddf416250e2005f4477ff9e19a88ecaea10cd6d9a494d130b277ae37d7a19b --dump --width 60 --theme tokyonight --colors 16 --scale on --links on --zebra --numbers tour.md
+eb0f431836eca5383aa08c6343b1883e89dd46164cb569dfe3af650ccae0039f --cat --width 60 --theme tokyonight --colors 16 --scale on --links on --zebra --numbers rich.md
+2fe6d945012c35ac42cb1932cd76dc69711942a7a88af837d541aff4a6529eb1 --dump --width 60 --theme tokyonight --colors 16 --scale on --links on --zebra --numbers rich.md
+0739762d3c04cc0e2508fb07e1366a3232363433474c9ce0354779c96542df76 --cat --width 60 --theme tokyonight --colors 256 tour.md
+34ce3c1b4a079e6b1f4fb3653f4d1aa9b74e19131df4c96b44e7ace5cd066d9d --dump --width 60 --theme tokyonight --colors 256 tour.md
+c790ad4dd214c84ff3b75965b338ed60d632d0c7b685ba9f21e2039837135e6e --cat --width 60 --theme tokyonight --colors 256 rich.md
+88d9da3eeb8091c0e55b31e011b6fd95411c5ddee189db84e3d7bf544e5e3a7b --dump --width 60 --theme tokyonight --colors 256 rich.md
+cbe603a5e6cbd02dede2795ab8364f9de304becb9776d98da6087112b185af80 --cat --width 60 --theme tokyonight --colors 256 unicode.md
+2a39ccef42c967a10d588a27753feb82da2f90af0a4b727a1005547a506e6474 --dump --width 60 --theme tokyonight --colors 256 unicode.md
+f942667dcf90b4e6753d30bca041449da48dbd1ca66e53b66a5966a81ef5a558 --cat --width 60 --theme tokyonight --colors 256 other.md
+34717ae3327481e2f2eae2fdfe286d8010683345a78cdcb629b96d9729ec3416 --dump --width 60 --theme tokyonight --colors 256 other.md
+5747a64420de6490803dbbeef68eda23e9a169b485a24b09c40d0f1ff11ce0b5 --cat --width 60 --theme tokyonight --colors 256 --zebra --numbers tour.md
+f73da805cc6684685cdeb702d9551075281961e4db7c2f15c5e83d669ad271aa --dump --width 60 --theme tokyonight --colors 256 --zebra --numbers tour.md
+fef437425effc33d910816ba4ffa17b2be5e9521d6e77721df8767e786afcdc5 --cat --width 60 --theme tokyonight --colors 256 --zebra --numbers rich.md
+cd35771ae0a124158f79b4d78c29db298c06ffe67049ff53ec14787933ef3951 --dump --width 60 --theme tokyonight --colors 256 --zebra --numbers rich.md
+b00cdbbdf7c9d49a72f85433f17de348846ed2c3b76a52de2fc39cc56a4c3f93 --cat --width 60 --theme tokyonight --colors 256 --scale on --links on --zebra --numbers tour.md
+d90730fcab19021bbd1a8240a5fc29e1f784493d6356c64dfc5937a250fe49e5 --dump --width 60 --theme tokyonight --colors 256 --scale on --links on --zebra --numbers tour.md
+729da5c45f78f4c3bcb420b18d93f535d993bfb38be15625cb7b0c2e14ad95a7 --cat --width 60 --theme tokyonight --colors 256 --scale on --links on --zebra --numbers rich.md
+5c77abe97a1c57bacc43f4541adbd0c3602a82e45f6ea74ca80826fe857fcb49 --dump --width 60 --theme tokyonight --colors 256 --scale on --links on --zebra --numbers rich.md
+f5de12ec10059ce219d17e2eebe05601367dff4475d15e0500dc51245f8ed722 --cat --width 60 --theme tokyonight --colors 24bit tour.md
+1a025896f9d0ce3677bb4098f86f31d5fccf5e91c6a254f86a818f326f1f8dfa --dump --width 60 --theme tokyonight --colors 24bit tour.md
+2490a9d1a9cdae5a7ddc2336da7220fb202b72dc009023053c190fe2adb0a275 --cat --width 60 --theme tokyonight --colors 24bit rich.md
+552eff5295fc2d90fbc0267e351c03141cd49def2ac8f2f3378b2ffef5a0fb94 --dump --width 60 --theme tokyonight --colors 24bit rich.md
+183216a4944209a3e6ea72ab32355fc51f5c787fb18296e430da95997bede89b --cat --width 60 --theme tokyonight --colors 24bit unicode.md
+02d3b60903568f1fd4fd47f312ce2f8b61b22047447029dd06653eca6b209327 --dump --width 60 --theme tokyonight --colors 24bit unicode.md
+ce58bc834919fed0e652bdb07de04752a37e37d666f162bc09c008df0e5922c6 --cat --width 60 --theme tokyonight --colors 24bit other.md
+1f31c42e820dbbc2f6661942a39ed8d40dba73f37d833ba859daf9b5a79f9e6e --dump --width 60 --theme tokyonight --colors 24bit other.md
+0d49d6be9e2298ab72d5e00dd14768634d119f90f689f25492c9def9e2c1861b --cat --width 60 --theme tokyonight --colors 24bit --zebra --numbers tour.md
+2b8372764a1844d86a2e23595eaf0c7ef4102e48988b36abb3e39b78e1b0367f --dump --width 60 --theme tokyonight --colors 24bit --zebra --numbers tour.md
+e4aa7449386c291ecb49279029dc4abddb4788e0effbad13cf591211b9eb60c9 --cat --width 60 --theme tokyonight --colors 24bit --zebra --numbers rich.md
+a26441ff0d4311344b06f7a94af59282611458d444286449dc99ea77282cda20 --dump --width 60 --theme tokyonight --colors 24bit --zebra --numbers rich.md
+b712fb43fa726048c39e10f31d94e8b1a40d2d28cff2824597d23516eff8fb8d --cat --width 60 --theme tokyonight --colors 24bit --scale on --links on --zebra --numbers tour.md
+718b9c93a8f233dd69ada39efe166f57b2a0f8ee377a058434df34149729e505 --dump --width 60 --theme tokyonight --colors 24bit --scale on --links on --zebra --numbers tour.md
+195cbb3c5cdc042037152215e7c0d85415277bc2e64d9eb590d2f75714e431f2 --cat --width 60 --theme tokyonight --colors 24bit --scale on --links on --zebra --numbers rich.md
+fe33f777281ca5efa831765c18dbcd5c459be8ba0247fdef07e02f9ebda9cba9 --dump --width 60 --theme tokyonight --colors 24bit --scale on --links on --zebra --numbers rich.md
+4f4f74b086da280b0115e9eebb1ab7bf3bf4c33473bbe9ebb3b82a86e0d31f4e --cat --width 60 --theme nightfox --colors 16 tour.md
+4245e2baa7f2dc0f8586d1759238a9956f5fd76c55e13500f05a70c5a6657b48 --dump --width 60 --theme nightfox --colors 16 tour.md
+81dde0ae08fa7176e96243581041b3bd4752fcd7520c1ef1d8b8d3b1740b5dde --cat --width 60 --theme nightfox --colors 16 rich.md
+1b5c93b384bc8cf515c0c1adaac71bb491f3b9304d8b448a9b33751cdce5ab7f --dump --width 60 --theme nightfox --colors 16 rich.md
+8efd733d7d5cda24311c0d006d769d0dfc3c33130d13227e9ec7b87bf9bba20a --cat --width 60 --theme nightfox --colors 16 unicode.md
+a318639bb5ee8c45d9d7c2c99cf6175ce076db9f7f8601f95e993cc6d4375be9 --dump --width 60 --theme nightfox --colors 16 unicode.md
+c67836f72479c9e62e1e4f4f258fed803fcda064b2c438b0b6d5ffdcabce1764 --cat --width 60 --theme nightfox --colors 16 other.md
+b38df228b8d03bcc59118955ff95c0b655239b70072507737abe793dd2033833 --dump --width 60 --theme nightfox --colors 16 other.md
+be6834b071274db8b446653e341114c8d35718cdd91aba679233c45e38085b13 --cat --width 60 --theme nightfox --colors 16 --zebra --numbers tour.md
+89a4bbfb6168be3d912a05e29783ce196ef3c1c35b78d2cd5a99323db7791c77 --dump --width 60 --theme nightfox --colors 16 --zebra --numbers tour.md
+c67b12b7e7a2ecd3be6346a8e65466c63b5e7550a1a25b67f63a90cb332a92f9 --cat --width 60 --theme nightfox --colors 16 --zebra --numbers rich.md
+925343c44d54055e3ce748751314a2a612760958c6b3c794800c025843f20b53 --dump --width 60 --theme nightfox --colors 16 --zebra --numbers rich.md
+d36da6552d3d215e0355866ea8ed0027be660ba5c55f7f70545dacc6379c395c --cat --width 60 --theme nightfox --colors 16 --scale on --links on --zebra --numbers tour.md
+1bddf416250e2005f4477ff9e19a88ecaea10cd6d9a494d130b277ae37d7a19b --dump --width 60 --theme nightfox --colors 16 --scale on --links on --zebra --numbers tour.md
+2b6615b0b2e3772520af1300061449c430c98ca7e1a4a68be2d9cc7d1dcd76c4 --cat --width 60 --theme nightfox --colors 16 --scale on --links on --zebra --numbers rich.md
+712389a39064077d609c5ff983196dc739f38c7190fe98a6e8d0c01499b41a9f --dump --width 60 --theme nightfox --colors 16 --scale on --links on --zebra --numbers rich.md
+1700f3db2c13b17a8716c473c35aedaad8bf90a0b979481d0575c580627f37f3 --cat --width 60 --theme nightfox --colors 256 tour.md
+cbe1f5dd61ec872f58c12419ec25b200f714460e6a7addf6900716958f4475f9 --dump --width 60 --theme nightfox --colors 256 tour.md
+2a3f257aafa131e6fde2d0b2a333bbaf32f9c13dc82daae7a939524b48be85e9 --cat --width 60 --theme nightfox --colors 256 rich.md
+6e2afd061b8fb2ed970079fa6c00476ed0a04609e2d35dfdce4d8aa34f0807de --dump --width 60 --theme nightfox --colors 256 rich.md
+0d4a9aff53a0d97f17765efb07eeb62aff6614e1dd1db9015bdde97ea166f2d2 --cat --width 60 --theme nightfox --colors 256 unicode.md
+6f7b0add7a60e5cd9cab03661bc41fe3df597c1a538bbde5aabae74daa097ba6 --dump --width 60 --theme nightfox --colors 256 unicode.md
+e8fed142eb7c054500aa5b6fd11a08c6c87cbd7bc26fbb18cc14a5075278ff26 --cat --width 60 --theme nightfox --colors 256 other.md
+0d3657cab233f9c80202b524502136ab304d1105b94ba1a679357445056cb59f --dump --width 60 --theme nightfox --colors 256 other.md
+4a0271a495eff36d99f5a45dec73445618d5e01a49501df70babae644c8d8ee3 --cat --width 60 --theme nightfox --colors 256 --zebra --numbers tour.md
+871dffd9328a9aa894758e080c029e7c6e4be23d624909dbd67004f5da97d5c4 --dump --width 60 --theme nightfox --colors 256 --zebra --numbers tour.md
+cd336db1efbfed558e65426f9b14d76fd1c1011eaa275829fca2e7445b5646d3 --cat --width 60 --theme nightfox --colors 256 --zebra --numbers rich.md
+2252227a41006728b8f726cc906837653a12e68fdba61e10bd96515e6a5b5eb0 --dump --width 60 --theme nightfox --colors 256 --zebra --numbers rich.md
+3826ad6f74118aa2ebf60e255586b482a943dac0d0321f8f95d663655907d2ed --cat --width 60 --theme nightfox --colors 256 --scale on --links on --zebra --numbers tour.md
+dd1e084bcb74e954090d8cfeb359c3590c87d7ef7c5b071c9fae87880435b6f4 --dump --width 60 --theme nightfox --colors 256 --scale on --links on --zebra --numbers tour.md
+463253f0cdac097d169dcfd121b04554cda5c0ffe8d3be59398661dd0e6813b7 --cat --width 60 --theme nightfox --colors 256 --scale on --links on --zebra --numbers rich.md
+40873d010d4c06a0b88f2d897a6733ca35f66c710a27cebeec753ea0b39b6106 --dump --width 60 --theme nightfox --colors 256 --scale on --links on --zebra --numbers rich.md
+50e1fe013fb157dbc9fee4ce24fd6d286bb7119eeb2528dcaaa4a12841704c3c --cat --width 60 --theme nightfox --colors 24bit tour.md
+dcdb15d9ec1e88dca242ea5f9881ea21c3aa7856757cce4a9821e982bcf20d51 --dump --width 60 --theme nightfox --colors 24bit tour.md
+c169cefca53e2bdd30a063ba9b362ea0f46fe5c8423483930d8beff09e84e09a --cat --width 60 --theme nightfox --colors 24bit rich.md
+d7f625c67147bcc74b3aca7d5ca1c0e76efeb0de984bb8589a0d1a81c359039f --dump --width 60 --theme nightfox --colors 24bit rich.md
+9e156ba2c4e1b1a581f9d6b0b4a8628f66a965019ad38803ece358c00c568f1f --cat --width 60 --theme nightfox --colors 24bit unicode.md
+9d3f6ab4ce365c7ec9d352c72d73b064704a77d4573486fba3fe6c52a3cd6a97 --dump --width 60 --theme nightfox --colors 24bit unicode.md
+1d66b764d41a6cdf072ed0fe322cd91a4431e905315eec4ceb1d4fc8e53bd25c --cat --width 60 --theme nightfox --colors 24bit other.md
+54d8db87bb23a67c017ca91d93ef1421bce5d440b6b0c0d4a5a6e632c15e1648 --dump --width 60 --theme nightfox --colors 24bit other.md
+d17318c1e8efd68033662494d05e19439419868d980fd7d3c736fa876aec48b1 --cat --width 60 --theme nightfox --colors 24bit --zebra --numbers tour.md
+bcb6136af5e7ee2bdce9861893ade29d1879e092f83b0b3fe30bed794593733f --dump --width 60 --theme nightfox --colors 24bit --zebra --numbers tour.md
+22f15761d0d1f9ae08be2703b94255598e233a197fba893b27c9bce87a97a796 --cat --width 60 --theme nightfox --colors 24bit --zebra --numbers rich.md
+745475f4fa0b3403615a67320f9ea0b849ab95940d87b40a39ab949f1661d1a5 --dump --width 60 --theme nightfox --colors 24bit --zebra --numbers rich.md
+4c9413d73f0e7e0772d870a91060d7d440d3205a195350ed6f6412c5143e2c21 --cat --width 60 --theme nightfox --colors 24bit --scale on --links on --zebra --numbers tour.md
+20efc29f87c7382cd1c66da3a7ad70584f56498a850136c93877013b7f63e8af --dump --width 60 --theme nightfox --colors 24bit --scale on --links on --zebra --numbers tour.md
+df6324bd930f37fa0e7d8c3532e275c720daf39431c8115afa478ebe01784570 --cat --width 60 --theme nightfox --colors 24bit --scale on --links on --zebra --numbers rich.md
+73cd700dac7a617fbb362c3c1a4bd69ead0c583860b14884fd10d4a1d8ea719f --dump --width 60 --theme nightfox --colors 24bit --scale on --links on --zebra --numbers rich.md
+ea7236af941d6481e54fec2457f39108f843daa1a93b74abd220ec1046a7a1a2 --cat --width 60 --theme gruvbox-material --colors 16 tour.md
+82a1e3ed80cdb421cc028be18dae0c40c64ca4f4eeae20f7ca2e5b088126f02d --dump --width 60 --theme gruvbox-material --colors 16 tour.md
+ff28312cf941cf7e56f8d17f78c7f5623d4a5138ff548ac2704a9a2efd579f39 --cat --width 60 --theme gruvbox-material --colors 16 rich.md
+b64a689b7390e0a84619df9eda0aaaa0fc831184fa42e5c7b101d06e202f180d --dump --width 60 --theme gruvbox-material --colors 16 rich.md
+8f927d1de738efbc6369a8b9dcf1c775299f2a2ae87d59d9f39af84174368cd1 --cat --width 60 --theme gruvbox-material --colors 16 unicode.md
+a7cdbbcf08b2f931fc7b43fb5b45f9209055d609e2f5e001e7efa2200d4eb821 --dump --width 60 --theme gruvbox-material --colors 16 unicode.md
+53dc5855089cfedf03100a12655769d54b5e9284c611e86fcf1337d030100890 --cat --width 60 --theme gruvbox-material --colors 16 other.md
+f465efaa84aff81089f8c4c7a646e5997773cd7aa951c75ee4d05deed8c82673 --dump --width 60 --theme gruvbox-material --colors 16 other.md
+6c55e1513377a75dd4025df168daaf4f2496a66f4c121537b67cc496e7ab6fbb --cat --width 60 --theme gruvbox-material --colors 16 --zebra --numbers tour.md
+e8ccc522dfd225399af64343819cc4cd025d96b27c50f95bb66b7345b6c9f3c6 --dump --width 60 --theme gruvbox-material --colors 16 --zebra --numbers tour.md
+b830e34eab7846e8e0e77841c0a46eb13a452af6284c2b90948dfa01d35ef35b --cat --width 60 --theme gruvbox-material --colors 16 --zebra --numbers rich.md
+b0068980bef2ce5da633f2cd4666b26a17aed4c4b9e9b56844dcd4dd0ff85306 --dump --width 60 --theme gruvbox-material --colors 16 --zebra --numbers rich.md
+d4e416a6fdea3d598dcc3a54724e58db3205d49d534025538555f7f39a02dead --cat --width 60 --theme gruvbox-material --colors 16 --scale on --links on --zebra --numbers tour.md
+3df6266c52e45b0064577c09a6d6e4d597b05ee1ca2af33bad47612114988d81 --dump --width 60 --theme gruvbox-material --colors 16 --scale on --links on --zebra --numbers tour.md
+67b70c6d8814f3e72c56e39f793946469ac32387cf712ca17c4fabb62a03d28a --cat --width 60 --theme gruvbox-material --colors 16 --scale on --links on --zebra --numbers rich.md
+678263bdc6b3a42a47808795524f60e3a6601a717ed1b4840782432448637e5b --dump --width 60 --theme gruvbox-material --colors 16 --scale on --links on --zebra --numbers rich.md
+65b27e080e6423f800865f8fcd8a27b13531375f01571cd7e4dc5d3db7da53b3 --cat --width 60 --theme gruvbox-material --colors 256 tour.md
+3753228872ecfca60a5164cfa6b7c42be3c16c87999bf3b113d217674c58afde --dump --width 60 --theme gruvbox-material --colors 256 tour.md
+b59791bee0d85fa961c1b7e2b51c4717346c9f1a959058b59e0d91f2efd90625 --cat --width 60 --theme gruvbox-material --colors 256 rich.md
+af924da86f1d6a862a56f62c5688f874c449bc44829635b78f7a1c5602127e8c --dump --width 60 --theme gruvbox-material --colors 256 rich.md
+a0599f0356cdaa56456e18bc739c4128d5078a911f92f3d5fbca6f9057aa20b8 --cat --width 60 --theme gruvbox-material --colors 256 unicode.md
+7decc86d8030f649ec85a3e59fb0572e054e8e52f1bbdd86da95122d572b79bb --dump --width 60 --theme gruvbox-material --colors 256 unicode.md
+acbfb8e8b197e29dbe03fb6873f3a51c2736a2dfa829a08a27c78c486478a42d --cat --width 60 --theme gruvbox-material --colors 256 other.md
+0be606011919116eb418d482f21c1ec57dc09817b599692949ed43ad446fc577 --dump --width 60 --theme gruvbox-material --colors 256 other.md
+878ed4b7b498dee85579880c27af5edc5c917ac4bf2bf430e5428e0b3fec8894 --cat --width 60 --theme gruvbox-material --colors 256 --zebra --numbers tour.md
+242c52df2cbbae0b29875cc3db6ecfc1eba2ce044d6826055c6b9ce4a6558d52 --dump --width 60 --theme gruvbox-material --colors 256 --zebra --numbers tour.md
+b3d9e10b436f1e50ad4591c3cdd3adeb470ae0b8ffb04c1c304dec777e880809 --cat --width 60 --theme gruvbox-material --colors 256 --zebra --numbers rich.md
+cdd9703a1df0bda7cf45d13b1af6567969ea20f37d9f5edc13a6d1f3495cf5fd --dump --width 60 --theme gruvbox-material --colors 256 --zebra --numbers rich.md
+1af4c3c0a86f192c2ebb8f6cec6f07762fcc035f676e32354ceb6c6326948e74 --cat --width 60 --theme gruvbox-material --colors 256 --scale on --links on --zebra --numbers tour.md
+8f246f529093c4f502268dc11e140123d6e96db8e935a6c2dd5d6c5d0924f6fa --dump --width 60 --theme gruvbox-material --colors 256 --scale on --links on --zebra --numbers tour.md
+d8a879d22c6802399a915149042a109cb9edbaebc2fef42b0028ff7e64608739 --cat --width 60 --theme gruvbox-material --colors 256 --scale on --links on --zebra --numbers rich.md
+308db59fe95e1a2436a65ad9337b876d3cd20365f8e582acb00cf7be08b1bd58 --dump --width 60 --theme gruvbox-material --colors 256 --scale on --links on --zebra --numbers rich.md
+c703386e1a664ddddf7ed7809767953e41510f98d2443e09cc0a8f16a8b2fbb4 --cat --width 60 --theme gruvbox-material --colors 24bit tour.md
+26d0f88088949ee2c0093e3804510b6417217c7ff67a7ca883cafefdc686a861 --dump --width 60 --theme gruvbox-material --colors 24bit tour.md
+6063f3c5643a5f61ca9bd75f6f2d5156b51487c550b18e978ad0d5a6350f8301 --cat --width 60 --theme gruvbox-material --colors 24bit rich.md
+3cb5cd37c3aef40ec04bb0e7fe482769df10c17f14a9b8a9e7109dbd7ddc7b9e --dump --width 60 --theme gruvbox-material --colors 24bit rich.md
+a037056b192ee39aa68da0a27294c269f533ee00904840c2bd1b7c398784ca44 --cat --width 60 --theme gruvbox-material --colors 24bit unicode.md
+b1cb099b1d50446dc77cc3a154ce7607abf88a5817bd9fb4b56fad641c7f2cdc --dump --width 60 --theme gruvbox-material --colors 24bit unicode.md
+352a6e9d71dd05cbd52753d0efdc0ca4712f7ea6820eb3f3f5f88494c1ad74d0 --cat --width 60 --theme gruvbox-material --colors 24bit other.md
+d280c7d4a62fcd82bad1a9ef905b47f6f34a11dd69530e549fc66f14b595a1a9 --dump --width 60 --theme gruvbox-material --colors 24bit other.md
+818ea6ce63005f0373817ae0be574739784b57f45337ef8437ece8caee7659f8 --cat --width 60 --theme gruvbox-material --colors 24bit --zebra --numbers tour.md
+e7fa135b5104014c896ecd09477b51f31796da22accfa1b39064e2af51b8fbaf --dump --width 60 --theme gruvbox-material --colors 24bit --zebra --numbers tour.md
+24f7b4ac4e2a3d8b86f3e61e16a321b738cbd0fa38d8a5fabf4b2a89988fb5ef --cat --width 60 --theme gruvbox-material --colors 24bit --zebra --numbers rich.md
+3fe772b79d4bb7c16b7b2673215a22611ffd72eb1c35b284f356c248da64870f --dump --width 60 --theme gruvbox-material --colors 24bit --zebra --numbers rich.md
+0c7e36f0081fd0764617dbb03d0d386856767b447eeef6757629a3ff70d65c7e --cat --width 60 --theme gruvbox-material --colors 24bit --scale on --links on --zebra --numbers tour.md
+d10a8a0e7fbbf0251366be844a00a1d010aec11eb52a2739e3889a66a3115025 --dump --width 60 --theme gruvbox-material --colors 24bit --scale on --links on --zebra --numbers tour.md
+c30fcb71ff8ec26208617871e66d07f27d3a3e5c9a9301f31ccbbe792ce125a4 --cat --width 60 --theme gruvbox-material --colors 24bit --scale on --links on --zebra --numbers rich.md
+21be52d5905fffda53c5a3c298dfb869508dd7885ce61d64baeafd6f22e497e1 --dump --width 60 --theme gruvbox-material --colors 24bit --scale on --links on --zebra --numbers rich.md
+ee62c3fbc986bf11c85eb1a85e660115dc43f98d05c86876e2c4a907c2747553 --cat --width 60 --theme plain --colors 16 tour.md
+55a84678fe0ff15f52618e132b5110a80737e7e2435d8f30757cca50aa282a5e --dump --width 60 --theme plain --colors 16 tour.md
+6d2c07acd2236585a267a592fd84b5957daee0c94621e00aed4b4a8a0f8917b9 --cat --width 60 --theme plain --colors 16 rich.md
+8748ca2688486bf7466f5c4d8f7d55b8aaed3b2f47fc37f8d1fd502ee8a53c1a --dump --width 60 --theme plain --colors 16 rich.md
+81d590d4b53a94a43c35f5bef02083a13e2e612950bff6cad397c8d0cb5b2d2d --cat --width 60 --theme plain --colors 16 unicode.md
+00b52a7fc7ddaec30b4b7466dd8a44ff876eefcc6d1ec09d5e99b07ce9b1accb --dump --width 60 --theme plain --colors 16 unicode.md
+257462d0218401c7197035f3c596604e5d9255d2a5d7ce525f6d94c30ac947c4 --cat --width 60 --theme plain --colors 16 other.md
+5695224d7084dbed83315360a11b49653e322ffded48ee6f0d833c4ba6fa21ea --dump --width 60 --theme plain --colors 16 other.md
+39526945855b6ac75189ff2d8ba555b7c5e5b713fda372ec4b1376a7f6b2f2a3 --cat --width 60 --theme plain --colors 16 --zebra --numbers tour.md
+1fdb017ee81496f11f7b4ea7c1a6a8ba01a10532f1653e6a4dee7a6e4b08eae6 --dump --width 60 --theme plain --colors 16 --zebra --numbers tour.md
+d598bafc8afc782db33f3c2d439c1154d4b8d80d331908077b7c4548bd6fa55c --cat --width 60 --theme plain --colors 16 --zebra --numbers rich.md
+161da28fc1d92f70b3e7176d049eb1d0072c08c15b2b06e9de32948ff4a40d5a --dump --width 60 --theme plain --colors 16 --zebra --numbers rich.md
+efe5508724a6bf3e48fe8960f8fd14d0dd7191697060117f2291164cbdd655fc --cat --width 60 --theme plain --colors 16 --scale on --links on --zebra --numbers tour.md
+743f43ce90075241966b31dfc5546edf3bb337211ee2fe64590941748230314e --dump --width 60 --theme plain --colors 16 --scale on --links on --zebra --numbers tour.md
+43279c6933463acd60d4abbc30af9c2c9dfd43c916d36f992399555fe454c134 --cat --width 60 --theme plain --colors 16 --scale on --links on --zebra --numbers rich.md
+ba1aff28ea6b7ac17169cee58295056f5386eb56c637017e68eb897591cc43e6 --dump --width 60 --theme plain --colors 16 --scale on --links on --zebra --numbers rich.md
+ee62c3fbc986bf11c85eb1a85e660115dc43f98d05c86876e2c4a907c2747553 --cat --width 60 --theme plain --colors 256 tour.md
+55a84678fe0ff15f52618e132b5110a80737e7e2435d8f30757cca50aa282a5e --dump --width 60 --theme plain --colors 256 tour.md
+6d2c07acd2236585a267a592fd84b5957daee0c94621e00aed4b4a8a0f8917b9 --cat --width 60 --theme plain --colors 256 rich.md
+8748ca2688486bf7466f5c4d8f7d55b8aaed3b2f47fc37f8d1fd502ee8a53c1a --dump --width 60 --theme plain --colors 256 rich.md
+81d590d4b53a94a43c35f5bef02083a13e2e612950bff6cad397c8d0cb5b2d2d --cat --width 60 --theme plain --colors 256 unicode.md
+00b52a7fc7ddaec30b4b7466dd8a44ff876eefcc6d1ec09d5e99b07ce9b1accb --dump --width 60 --theme plain --colors 256 unicode.md
+257462d0218401c7197035f3c596604e5d9255d2a5d7ce525f6d94c30ac947c4 --cat --width 60 --theme plain --colors 256 other.md
+5695224d7084dbed83315360a11b49653e322ffded48ee6f0d833c4ba6fa21ea --dump --width 60 --theme plain --colors 256 other.md
+39526945855b6ac75189ff2d8ba555b7c5e5b713fda372ec4b1376a7f6b2f2a3 --cat --width 60 --theme plain --colors 256 --zebra --numbers tour.md
+1fdb017ee81496f11f7b4ea7c1a6a8ba01a10532f1653e6a4dee7a6e4b08eae6 --dump --width 60 --theme plain --colors 256 --zebra --numbers tour.md
+d598bafc8afc782db33f3c2d439c1154d4b8d80d331908077b7c4548bd6fa55c --cat --width 60 --theme plain --colors 256 --zebra --numbers rich.md
+161da28fc1d92f70b3e7176d049eb1d0072c08c15b2b06e9de32948ff4a40d5a --dump --width 60 --theme plain --colors 256 --zebra --numbers rich.md
+efe5508724a6bf3e48fe8960f8fd14d0dd7191697060117f2291164cbdd655fc --cat --width 60 --theme plain --colors 256 --scale on --links on --zebra --numbers tour.md
+743f43ce90075241966b31dfc5546edf3bb337211ee2fe64590941748230314e --dump --width 60 --theme plain --colors 256 --scale on --links on --zebra --numbers tour.md
+43279c6933463acd60d4abbc30af9c2c9dfd43c916d36f992399555fe454c134 --cat --width 60 --theme plain --colors 256 --scale on --links on --zebra --numbers rich.md
+ba1aff28ea6b7ac17169cee58295056f5386eb56c637017e68eb897591cc43e6 --dump --width 60 --theme plain --colors 256 --scale on --links on --zebra --numbers rich.md
+ee62c3fbc986bf11c85eb1a85e660115dc43f98d05c86876e2c4a907c2747553 --cat --width 60 --theme plain --colors 24bit tour.md
+55a84678fe0ff15f52618e132b5110a80737e7e2435d8f30757cca50aa282a5e --dump --width 60 --theme plain --colors 24bit tour.md
+6d2c07acd2236585a267a592fd84b5957daee0c94621e00aed4b4a8a0f8917b9 --cat --width 60 --theme plain --colors 24bit rich.md
+8748ca2688486bf7466f5c4d8f7d55b8aaed3b2f47fc37f8d1fd502ee8a53c1a --dump --width 60 --theme plain --colors 24bit rich.md
+81d590d4b53a94a43c35f5bef02083a13e2e612950bff6cad397c8d0cb5b2d2d --cat --width 60 --theme plain --colors 24bit unicode.md
+00b52a7fc7ddaec30b4b7466dd8a44ff876eefcc6d1ec09d5e99b07ce9b1accb --dump --width 60 --theme plain --colors 24bit unicode.md
+257462d0218401c7197035f3c596604e5d9255d2a5d7ce525f6d94c30ac947c4 --cat --width 60 --theme plain --colors 24bit other.md
+5695224d7084dbed83315360a11b49653e322ffded48ee6f0d833c4ba6fa21ea --dump --width 60 --theme plain --colors 24bit other.md
+39526945855b6ac75189ff2d8ba555b7c5e5b713fda372ec4b1376a7f6b2f2a3 --cat --width 60 --theme plain --colors 24bit --zebra --numbers tour.md
+1fdb017ee81496f11f7b4ea7c1a6a8ba01a10532f1653e6a4dee7a6e4b08eae6 --dump --width 60 --theme plain --colors 24bit --zebra --numbers tour.md
+d598bafc8afc782db33f3c2d439c1154d4b8d80d331908077b7c4548bd6fa55c --cat --width 60 --theme plain --colors 24bit --zebra --numbers rich.md
+161da28fc1d92f70b3e7176d049eb1d0072c08c15b2b06e9de32948ff4a40d5a --dump --width 60 --theme plain --colors 24bit --zebra --numbers rich.md
+efe5508724a6bf3e48fe8960f8fd14d0dd7191697060117f2291164cbdd655fc --cat --width 60 --theme plain --colors 24bit --scale on --links on --zebra --numbers tour.md
+743f43ce90075241966b31dfc5546edf3bb337211ee2fe64590941748230314e --dump --width 60 --theme plain --colors 24bit --scale on --links on --zebra --numbers tour.md
+43279c6933463acd60d4abbc30af9c2c9dfd43c916d36f992399555fe454c134 --cat --width 60 --theme plain --colors 24bit --scale on --links on --zebra --numbers rich.md
+ba1aff28ea6b7ac17169cee58295056f5386eb56c637017e68eb897591cc43e6 --dump --width 60 --theme plain --colors 24bit --scale on --links on --zebra --numbers rich.md

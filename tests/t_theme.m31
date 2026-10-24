@@ -1,0 +1,309 @@
+// The transparency resolver (`MDV_theme.transparent_style` and the style
+// functions that go through it), for every theme, with no terminal.
+//
+//   * off: the styles are the 0.9.0 ones (spot values), and nothing else is touched;
+//   * on: no style a theme hands out has a background except the highlights
+//     (selection, search hits, the focused link, a chosen row), and those have
+//     text that reads on it; no reversed style except a highlight's;
+//   * popups: only the popup style loses its background; the page's styles are
+//     the theme's own;
+//   * the mode words, `next_after`, and the cards' frame in the layout.
+//
+// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+
+import MDV_layout;
+import MDV_model;
+import MDV_prepare;
+import MDV_theme;
+import MDV_wrap;
+import tui.core.TUI_style;
+
+type Tally {
+    int passed = 0;
+    int failed = 0;
+}
+
+void Tally.check(str name, bool is_true) {
+    if (is_true) {
+        passed = passed + 1;
+        print("ok   " + name);
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name);
+    }
+}
+
+void Tally.sweep(str name, Sweep sweep) {
+    if (sweep.bad == 0) {
+        passed = passed + 1;
+        print("ok   " + name + " (" + str(sweep.count) + " styles)");
+    } else {
+        failed = failed + 1;
+        print("FAIL " + name + ": " + str(sweep.bad) + " of " + str(sweep.count) + ", first " + sweep.first);
+    }
+}
+
+/// Counts quietly while a sweep runs; one line for the whole sweep.
+type Sweep {
+    int count = 0;
+    int bad = 0;
+    str first = "";
+}
+
+void Sweep.expect(bool is_true, str what) {
+    count = count + 1;
+    if (!is_true) {
+        bad = bad + 1;
+        if (first.size() == 0) {
+            first = what;
+        }
+    }
+}
+
+bool has_background(TUI_style.Style style) {
+    return !style.background.eq(TUI_style.Colour.Default);
+}
+
+bool is_reversed(TUI_style.Style style) {
+    return (style.attrs & TUI_style.REVERSE) != 0;
+}
+
+/// The relative luminance 0..1000 of an Rgb colour (Default and Indexed: -1).
+int luma(TUI_style.Colour colour) {
+    match (colour) {
+        case Rgb(int red, int green, int blue): {
+            return (299 * red * red + 587 * green * green + 114 * blue * blue) / 65025;
+        }
+        case Default: {
+            return -1;
+        }
+        case Indexed(int index): {
+            return -1;
+        }
+    }
+}
+
+/// Does the text colour read on the background: a contrast ratio of at least 3 (WCAG AA for large and bold text, which the highlights are)?
+bool is_legible(TUI_style.Style style) {
+    int back = luma(style.background);
+    int fore = luma(style.foreground);
+    if (back < 0 || fore < 0) {
+        return false;
+    }
+    int high = back;
+    int low = fore;
+    if (fore > back) {
+        high = fore;
+        low = back;
+    }
+    return high + 50 >= 3 * (low + 50);
+}
+
+/// Span style bits worth trying: each bit alone, each pair, the heading levels, callouts, syntax classes.
+List<int> sample_bits() {
+    List<int> singles = [MDV_model.BOLD, MDV_model.ITALIC, MDV_model.CODE, MDV_model.LINK, MDV_model.DECO, MDV_model.IMAGE, MDV_model.BLOCK, MDV_model.STRIKE, MDV_model.HEADING, MDV_model.HEAD_CELL, MDV_model.TASK, MDV_model.QUOTE, MDV_model.ZEBRA, MDV_model.CHIP, MDV_model.GUIDE, MDV_model.RULE, MDV_model.META, MDV_model.FOOT, MDV_model.BANNER, MDV_model.BULLET, MDV_model.GUTTER, MDV_model.UNDER, MDV_model.TITLE, MDV_model.BORDER, MDV_model.RAW];
+    List<int> out = [0];
+    for (int one in singles) {
+        out.push(one);
+        for (int two in singles) {
+            out.push(one | two);
+        }
+    }
+    for (int level in 1 .. 7) {
+        out.push(MDV_model.heading_style(level));
+        out.push(MDV_model.heading_style(level) | MDV_model.BANNER);
+        out.push(MDV_model.heading_style(level) | MDV_model.BANNER | MDV_model.UNDER | MDV_model.DECO);
+    }
+    for (int kind in 1 .. 6) {
+        out.push(MDV_model.callout_style(kind) | MDV_model.QUOTE);
+        out.push(MDV_model.callout_style(kind) | MDV_model.QUOTE | MDV_model.DECO | MDV_model.BORDER);
+        out.push(MDV_model.callout_style(kind) | MDV_model.QUOTE | MDV_model.DECO | MDV_model.TITLE);
+    }
+    for (int class_value in 0 .. 12) {
+        out.push(MDV_model.syntax_style(class_value) | MDV_model.BLOCK);
+        out.push(MDV_model.syntax_style(class_value) | MDV_model.RAW);
+        out.push(MDV_model.syntax_style(class_value) | MDV_model.RAW | MDV_model.SELECTED);
+    }
+    out.push(MDV_model.SELECTED);
+    out.push(MDV_model.RAW | MDV_model.SELECTED);
+    out.push(MDV_model.DECO | MDV_model.SELECTED);
+    return out;
+}
+
+List<MDV_theme.Theme> themes() {
+    List<MDV_theme.Theme> out = [];
+    for (str name in MDV_theme.names()) {
+        out.push(MDV_theme.named(name).or(MDV_theme.dark()));
+    }
+    return out;
+}
+
+/// The surfaces a theme hands out besides span styles: (name, style).
+List<TUI_style.Style> chrome_of(MDV_theme.Theme theme) {
+    return [MDV_theme.base_style(theme), MDV_theme.status_style(theme), MDV_theme.quiet_style(theme), MDV_theme.popup_style(theme), MDV_theme.side_style(theme), MDV_theme.thumb_style(theme, true), MDV_theme.thumb_style(theme, false)];
+}
+
+List<TUI_style.Style> highlights_of(MDV_theme.Theme theme) {
+    return [MDV_theme.hit_style(theme, true), MDV_theme.hit_style(theme, false), MDV_theme.select_style(theme), MDV_theme.focus_style(theme, MDV_theme.style_for(theme, MDV_model.LINK))];
+}
+
+Tally tally = Tally();
+List<int> bits = sample_bits();
+
+// --- off: nothing changes ----------------------------------------------------------------
+
+MDV_theme.Theme dark = MDV_theme.dark();
+tally.check("off is the default mode", dark.transparency == MDV_theme.OFF);
+tally.check("dark page is the explicit GitHub background", MDV_theme.base_style(dark).background.eq(TUI_style.Colour.Rgb(13, 17, 23)));
+tally.check("dark status bar keeps its tint when off", has_background(MDV_theme.status_style(dark)));
+tally.check("dark accent is a block (page on blue) when off", MDV_theme.accent_style(dark).background.eq(TUI_style.Colour.Rgb(88, 166, 255)) && MDV_theme.accent_style(dark).foreground.eq(TUI_style.Colour.Rgb(13, 17, 23)));
+tally.check("the focused link is reverse video when off", is_reversed(MDV_theme.focus_style(dark, MDV_theme.style_for(dark, MDV_model.LINK))));
+tally.check("plain status is reverse when off", is_reversed(MDV_theme.status_style(MDV_theme.plain())));
+tally.check("select_style is the accent look when off", MDV_theme.select_style(dark).eq(MDV_theme.accent_style(dark)));
+tally.check("with_transparency(OFF) changes nothing", MDV_theme.with_transparency(dark, MDV_theme.OFF).colours.page == dark.colours.page && MDV_theme.with_transparency(dark, MDV_theme.OFF).name == "dark");
+
+// --- the mode words ----------------------------------------------------------------------
+
+tally.check("mode words: on 1 true all", MDV_theme.mode_of("on") == MDV_theme.ALL && MDV_theme.mode_of("1") == MDV_theme.ALL && MDV_theme.mode_of("TRUE") == MDV_theme.ALL && MDV_theme.mode_of("all") == MDV_theme.ALL);
+tally.check("mode words: popups", MDV_theme.mode_of("popups") == MDV_theme.POPUPS && MDV_theme.mode_of("Popups") == MDV_theme.POPUPS);
+tally.check("mode words: off 0 false and nothing", MDV_theme.mode_of("off") == MDV_theme.OFF && MDV_theme.mode_of("0") == MDV_theme.OFF && MDV_theme.mode_of("false") == MDV_theme.OFF && MDV_theme.mode_of("") == MDV_theme.OFF);
+tally.check("mode words: anything else is -1", MDV_theme.mode_of("maybe") == -1 && MDV_theme.mode_of("2") == -1 && MDV_theme.mode_of("popup") == -1);
+
+// --- the resolver on its own -------------------------------------------------------------
+
+TUI_style.Style block = TUI_style.Style(foreground: TUI_style.Colour.Rgb(10, 10, 10), background: TUI_style.Colour.Rgb(200, 200, 200), attrs: TUI_style.BOLD);
+tally.check("resolver off returns the style", MDV_theme.transparent_style(MDV_theme.OFF, 0, block).eq(block) && MDV_theme.transparent_style(MDV_theme.OFF, 1, block).eq(block) && MDV_theme.transparent_style(MDV_theme.OFF, 2, block).eq(block) && MDV_theme.transparent_style(MDV_theme.OFF, 3, block).eq(block));
+TUI_style.Style surface = MDV_theme.transparent_style(MDV_theme.ALL, 0, block);
+tally.check("surface (clear): background gone, text colour and bold kept", !has_background(surface) && surface.foreground.eq(block.foreground) && surface.attrs == TUI_style.BOLD);
+tally.check("surface (popups): untouched", MDV_theme.transparent_style(MDV_theme.POPUPS, 0, block).eq(block));
+TUI_style.Style popup = MDV_theme.transparent_style(MDV_theme.POPUPS, 3, block);
+tally.check("popup (popups): background gone", !has_background(popup) && popup.foreground.eq(block.foreground));
+tally.check("popup (clear): background gone", !has_background(MDV_theme.transparent_style(MDV_theme.ALL, 3, block)));
+TUI_style.Style badge = MDV_theme.transparent_style(MDV_theme.ALL, 2, block);
+tally.check("badge (clear): the block's colour is the text, bold", !has_background(badge) && badge.foreground.eq(block.background) && (badge.attrs & TUI_style.BOLD) != 0);
+tally.check("badge (popups): untouched", MDV_theme.transparent_style(MDV_theme.POPUPS, 2, block).eq(block));
+TUI_style.Style reversed = TUI_style.Style(attrs: TUI_style.REVERSE | TUI_style.BOLD);
+tally.check("badge (clear): reverse becomes bold text", MDV_theme.transparent_style(MDV_theme.ALL, 2, reversed).attrs == TUI_style.BOLD);
+TUI_style.Style bar = TUI_style.Style(attrs: TUI_style.REVERSE);
+TUI_style.Style bar_out = MDV_theme.transparent_style(MDV_theme.ALL, 0, bar);
+tally.check("surface (clear): a reversed bar becomes dim text", !is_reversed(bar_out) && (bar_out.attrs & TUI_style.DIM) != 0);
+tally.check("highlight (clear): keeps its background", MDV_theme.transparent_style(MDV_theme.ALL, 1, block).background.eq(block.background));
+tally.check("highlight (clear): text reads on the background", is_legible(MDV_theme.transparent_style(MDV_theme.ALL, 1, block)));
+TUI_style.Style mid = TUI_style.Style(foreground: TUI_style.Colour.Rgb(120, 120, 120), background: TUI_style.Colour.Rgb(20, 40, 90));
+tally.check("highlight (clear): a dark background gets near-white text", luma(MDV_theme.transparent_style(MDV_theme.ALL, 1, mid).foreground) > 900);
+TUI_style.Style indexed = TUI_style.Style(background: TUI_style.Colour.Indexed(4));
+tally.check("highlight (clear): an indexed background gets text too", luma(MDV_theme.transparent_style(MDV_theme.ALL, 1, indexed).foreground) >= 0);
+TUI_style.Style no_block = TUI_style.Style(attrs: TUI_style.REVERSE);
+tally.check("highlight (clear): reverse video stays", is_reversed(MDV_theme.transparent_style(MDV_theme.ALL, 1, no_block)));
+tally.check("highlight (popups): untouched", MDV_theme.transparent_style(MDV_theme.POPUPS, 1, block).eq(block));
+
+// --- every theme, every mode ---------------------------------------------------------------
+
+for (MDV_theme.Theme each in themes()) {
+    MDV_theme.Theme clear = MDV_theme.with_transparency(each, MDV_theme.ALL);
+    MDV_theme.Theme popups = MDV_theme.with_transparency(each, MDV_theme.POPUPS);
+    tally.check(each.name + ": with_transparency keeps the theme", clear.name == each.name && clear.is_plain == each.is_plain && clear.colours.page == each.colours.page && clear.transparency == MDV_theme.ALL);
+    tally.check(each.name + ": next_after keeps the mode", MDV_theme.next_after(clear).transparency == MDV_theme.ALL && MDV_theme.next_after(popups).transparency == MDV_theme.POPUPS && MDV_theme.next_after(each).transparency == MDV_theme.OFF);
+    // on: spans
+    Sweep spans = Sweep();
+    Sweep spans_same_text = Sweep();
+    for (int one in bits) {
+        TUI_style.Style off_style = MDV_theme.style_for(each, one);
+        TUI_style.Style shown = MDV_theme.style_for(clear, one);
+        bool is_selected = (one & MDV_model.SELECTED) != 0;
+        if (is_selected) {
+            spans.expect(!each.is_plain && has_background(shown) && is_legible(shown) || each.is_plain, "selected " + str(one));
+        } else {
+            spans.expect(!has_background(shown) && !is_reversed(shown), "bits " + str(one));
+        }
+        if (!is_selected && !each.is_plain) {
+            // the text colour is the theme's own, except zebra rows are dimmed
+            spans_same_text.expect(shown.foreground.eq(off_style.foreground), "foreground of " + str(one));
+        }
+    }
+    tally.sweep(each.name + " on: no span has a background but the selection", spans);
+    tally.sweep(each.name + " on: spans keep the theme's text colours", spans_same_text);
+    // on: chrome and highlights
+    Sweep surfaces = Sweep();
+    for (TUI_style.Style one in chrome_of(clear)) {
+        surfaces.expect(!has_background(one) && !is_reversed(one), one.to_str());
+    }
+    surfaces.expect(!has_background(MDV_theme.accent_style(clear)) && !is_reversed(MDV_theme.accent_style(clear)), "accent");
+    surfaces.expect((MDV_theme.accent_style(clear).attrs & TUI_style.BOLD) != 0, "accent bold");
+    tally.sweep(each.name + " on: bars, sidebar, popups, thumb and badges have no background", surfaces);
+    Sweep marks = Sweep();
+    for (TUI_style.Style one in highlights_of(clear)) {
+        if (each.is_plain) {
+            marks.expect(is_reversed(one) && !has_background(one), one.to_str());
+        } else {
+            marks.expect(has_background(one) && is_legible(one), one.to_str());
+        }
+    }
+    tally.sweep(each.name + " on: highlights keep a background (reverse in plain) and read", marks);
+    if (!each.is_plain) {
+        tally.check(each.name + " on: the accent is the off accent's block colour as text", MDV_theme.accent_style(clear).foreground.eq(MDV_theme.accent_style(each).background));
+    }
+    // popups: the popup only
+    tally.check(each.name + " popups: the popup style has no background", !has_background(MDV_theme.popup_style(popups)));
+    Sweep page = Sweep();
+    for (int one in bits) {
+        page.expect(MDV_theme.style_for(popups, one).eq(MDV_theme.style_for(each, one)), "bits " + str(one));
+    }
+    page.expect(MDV_theme.base_style(popups).eq(MDV_theme.base_style(each)), "base");
+    page.expect(MDV_theme.status_style(popups).eq(MDV_theme.status_style(each)), "status");
+    page.expect(MDV_theme.side_style(popups).eq(MDV_theme.side_style(each)), "side");
+    page.expect(MDV_theme.accent_style(popups).eq(MDV_theme.accent_style(each)), "accent");
+    page.expect(MDV_theme.hit_style(popups, true).eq(MDV_theme.hit_style(each, true)), "hit");
+    page.expect(MDV_theme.quiet_style(popups).eq(MDV_theme.quiet_style(each)), "quiet");
+    tally.sweep(each.name + " popups: the page and bars are the theme's own", page);
+}
+
+// --- the cards' frame -------------------------------------------------------------------------
+
+str source = "---\ntitle: x\n---\n\n# T\n\n```rust\nlet a = 1;\n```\n\n> quote\n\n```\nplain card\n```\n";
+MDV_model.Document doc = MDV_prepare.prepare(source);
+MDV_model.Layout flat = MDV_layout.layout_with(doc, MDV_layout.Options(40));
+MDV_model.Layout framed = MDV_layout.layout_with(doc, MDV_layout.Options(40, is_framed: true));
+tally.check("framed: the same number of rows", flat.rows.size() == framed.rows.size());
+Sweep widths = Sweep();
+Sweep texts = Sweep();
+Sweep chrome_only = Sweep();
+bool has_corner = false;
+bool has_bar = false;
+for (int index in 0 .. flat.rows.size()) {
+    widths.expect(MDV_wrap.spans_width(flat.rows[index].spans) == MDV_wrap.spans_width(framed.rows[index].spans), "row " + str(index));
+    str flat_text = "";
+    str framed_text = "";
+    for (MDV_model.Span span in flat.rows[index].spans) {
+        if ((span.style & MDV_model.DECO) == 0) {
+            flat_text = flat_text + span.text;
+        }
+    }
+    for (MDV_model.Span span in framed.rows[index].spans) {
+        if ((span.style & MDV_model.DECO) == 0) {
+            framed_text = framed_text + span.text;
+        }
+        if (span.text.contains("\u{256d}") || span.text.contains("\u{2570}")) {
+            has_corner = true;
+            chrome_only.expect((span.style & MDV_model.DECO) != 0, "corner row " + str(index));
+        }
+        if (span.text.contains("\u{2502} ")) {
+            has_bar = true;
+        }
+    }
+    texts.expect(flat_text == framed_text, "row " + str(index));
+}
+tally.sweep("framed: every row is as wide as unframed", widths);
+tally.sweep("framed: the document's own text is the same", texts);
+tally.sweep("framed: the frame is chrome", chrome_only);
+tally.check("framed: cards have corners and a bar", has_corner && has_bar);
+bool has_flat_frame = false;
+for (MDV_model.Row row in flat.rows) {
+    for (MDV_model.Span span in row.spans) {
+        if (span.text.contains("\u{256d}") || span.text.contains("\u{2570}")) {
+            has_flat_frame = true;
+        }
+    }
+}
+tally.check("not framed: no corner anywhere (0.9.0 layout)", !has_flat_frame);
+print(str(tally.passed) + " passed, " + str(tally.failed) + " failed");

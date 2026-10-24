@@ -60,7 +60,7 @@ escapes() { printf '%s\n' "$1" | grep -c "$esc"; }
 
 # --- help, version, completions ---------------------------------------------------
 run --help; expect "--help" 0 "usage: tui-markdown [options] [<FILE>...]"
-for want in "--c, --cat" "--w, --width N" "--theme NAME" "--no-watch" "--version" "--help" "--completions SHELL" "exit status:"; do
+for want in "--c, --cat" "--w, --width N" "--theme NAME" "--transparent MODE" "TUI_MARKDOWN_TRANSPARENT" "--no-watch" "--version" "--help" "--completions SHELL" "exit status:"; do
     run --help
     if [[ "$out" == *"$want"* ]]; then note "--help lists: $want"; else bad "--help lacks: $want" "$out"; fi
 done
@@ -69,6 +69,13 @@ run --completions bash; expect "--completions bash" 0 "complete -o filenames -F 
 if printf '%s\n' "$out" | bash -n 2>"$WORK/syntax"; then note "--completions bash is valid bash"; else bad "bash completion syntax" "$(cat "$WORK/syntax")"; fi
 run --completions fish; expect "--completions fish" 0 "complete -c tui-markdown -l cat"
 run --completions zsh;  expect "--completions zsh" 0 "#compdef tui-markdown"
+# the generated scripts, byte for byte (BLESS=1 rewrites them)
+for shell in bash zsh fish; do
+    run --completions "$shell"
+    if [ -n "${BLESS:-}" ]; then printf '%s\n' "$out" >"$ROOT/tests/golden/completions-$shell.txt"; fi
+    same "--completions $shell equals tests/golden/completions-$shell.txt" "$(cat "$ROOT/tests/golden/completions-$shell.txt" 2>/dev/null)" "$out"
+    [[ "$out" == *transparent* ]] && note "--completions $shell offers --transparent" || bad "--completions $shell lacks --transparent"
+done
 
 # --- --cat, --width and the theme, in every spelling -----------------------------------
 cd "$F"
@@ -113,6 +120,12 @@ run --scale maybe --cat tour.md; expect "a bad --scale" 2 "" "'--scale' needs on
 run --links maybe --cat tour.md; expect "a bad --links" 2 "" "'--links' needs on, off or auto"
 run --colors 8 --cat tour.md;    expect "a bad --colors" 2 "" "'--colors' needs 16, 256 or 24bit, and got '8'"
 run --mode vim --cat tour.md;    expect "a bad --mode" 2 "" "'--mode' needs preview, source or live"
+run --transparent maybe --cat tour.md; expect "a bad --transparent" 2 "" "'--transparent' needs on, popups or off, and got 'maybe'"
+run --transparent 1 --cat tour.md;     expect "--transparent 1 is not a spelling of on (the environment's 1 is)" 2 "" "'--transparent' needs on, popups or off, and got '1'"
+run --transparent;       expect "--transparent at the end" 2 "" "'--transparent' needs a value and is the last argument"
+run --t on --cat tour.md; expect "--t is not a short form (abbreviations are never accepted)" 2 "" "unknown option '--t'"
+run --transparent on --transparent off --cat tour.md; expect "--transparent twice" 2 "" "was given more than once and takes a single value"
+TUI_MARKDOWN_TRANSPARENT=sometimes run --cat tour.md; expect "a bad TUI_MARKDOWN_TRANSPARENT" 2 "" "TUI_MARKDOWN_TRANSPARENT is 1, popups or 0, and got 'sometimes'"
 run --width abc --cat tour.md;   expect "--width abc" 2 "" "'--width' needs a whole number, and got 'abc'"
 run --width 0 --cat tour.md;     expect "--width 0 is refused, not silently replaced" 2 "" "'--width' needs a whole number of at least 1"
 run --width;             expect "--width at the end" 2 "" "'--width' needs a value and is the last argument"
@@ -121,6 +134,47 @@ run --cat=1 tour.md;     expect "--cat takes no value" 2 "" "is a flag and takes
 run --cat --cat tour.md; expect "--cat twice" 2 "" "was given more than once"
 [ "$(printf '%s\n' "$err" | wc -l | tr -d ' ')" -ge 2 ] && note "usage errors carry the usage line" || bad "usage error shape" "$err"
 run --cat nope.md;       expect "a missing file exits 1" 1 "" "nope.md"
+
+# --- --transparent: on, popups, off; the environment; the flag wins ------------------------------------
+# bgs: how many SGR set a background (a 24-bit colour's own numbers are not counted)
+bgs() { printf '%s' "$1" | python3 -c '
+import re, sys
+n = 0
+for m in re.finditer(rb"\x1b\[([0-9;:]*)m", sys.stdin.buffer.read()):
+    p = m.group(1).decode().replace(":", ";").split(";")
+    i = 0
+    hit = False
+    while i < len(p):
+        v = int(p[i] or 0)
+        if v in (38, 48):
+            hit = hit or v == 48
+            i += 3 if i + 1 < len(p) and p[i + 1] == "5" else 5
+            continue
+        hit = hit or 40 <= v <= 47 or 100 <= v <= 107
+        i += 1
+    n += hit
+print(n)'; }
+run --cat --width 40 --theme dark rich.md; base_out=$out
+run --cat --width 40 --theme dark --transparent off rich.md; same "--transparent off is the default output" "$base_out" "$out"
+TUI_MARKDOWN_TRANSPARENT=0 run --cat --width 40 --theme dark rich.md; same "TUI_MARKDOWN_TRANSPARENT=0 is the default output" "$base_out" "$out"
+TUI_MARKDOWN_TRANSPARENT= run --cat --width 40 --theme dark rich.md; same "an empty TUI_MARKDOWN_TRANSPARENT is the default output" "$base_out" "$out"
+[ "$(bgs "$base_out")" -gt 0 ] && note "default --cat has tinted backgrounds" || bad "default --cat has no backgrounds"
+run --cat --width 40 --theme dark --transparent on rich.md
+same "--transparent on: no background SGR in --cat" 0 "$(bgs "$out")"
+on_out=$out
+TUI_MARKDOWN_TRANSPARENT=1 run --cat --width 40 --theme dark rich.md; same "TUI_MARKDOWN_TRANSPARENT=1 is --transparent on" "$on_out" "$out"
+TUI_MARKDOWN_TRANSPARENT=on run --cat --width 40 --theme dark rich.md; same "TUI_MARKDOWN_TRANSPARENT=on is --transparent on" "$on_out" "$out"
+TUI_MARKDOWN_TRANSPARENT=1 run --cat --width 40 --theme dark --transparent off rich.md; same "the flag beats the environment (off)" "$base_out" "$out"
+TUI_MARKDOWN_TRANSPARENT=0 run --cat --width 40 --theme dark --transparent on rich.md; same "the flag beats the environment (on)" "$on_out" "$out"
+run --cat --width 40 --theme dark --transparent popups rich.md
+same "--transparent popups: --cat has the page as before" "$base_out" "$out"
+run --dump --width 60 --theme tokyonight --transparent on rich.md
+same "--transparent on: no background SGR in --dump either" 0 "$(bgs "$out")"
+run --cat --width 40 --theme plain --transparent on rich.md; plain_on=$out
+run --cat --width 40 --theme plain rich.md; same "--theme plain is the same transparent or not" "$out" "$plain_on"
+corners() { printf '%s' "$1" | grep -o '╭' | wc -l | tr -d ' '; }
+run --cat --width 40 --theme dark --transparent on rich.md
+[ "$(corners "$out")" -gt "$(corners "$base_out")" ] && note "--transparent on frames the code and metadata cards (the table's corner was there)" || bad "no card frame in --transparent on"
 
 # --- --links and --scale: on and off are exact, auto is what the environment says ------------
 # runenv "VAR=value ..." ARGS...: the environment is cleared of every variable the
