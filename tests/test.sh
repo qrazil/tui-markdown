@@ -19,6 +19,8 @@
 #   pty            tests/pty_e2e.py drives the real binary under a pty
 #   pty, variants  tests/pty_variants.py: the same binary on emulated terminals that measure text differently
 #   pty, width     tests/pty_width.py: the start-up width probe (tui 0.14.0) against an emulator that answers cursor reports
+#   transparency   tests/t_theme.m31 (the style resolver, every theme), tests/default_bytes.py (the default output is 0.9.0's),
+#                  tests/pty_transparent.py (no background outside a highlight on a transparent page; default session bytes = 0.9.0's)
 #
 # The suite runs on bash 3.2 and BSD tools (macOS): no associative arrays, no
 # `mapfile`, no GNU-only flags. Where a BSD tool differs (`wc` pads its
@@ -125,6 +127,13 @@ if ! bash scripts/build.sh -o "$BIN" >"$WORK/build.log" 2>&1; then
     exit 1
 fi
 note "tui-markdown builds"
+
+# --- transparency: the style resolver, for every theme ---------------------------------------
+
+if build t_theme; then
+    "$WORK/t_theme" >"$WORK/t_theme.out" 2>&1
+    tally "transparency: style resolver and card frame" "$WORK/t_theme.out"
+fi
 
 # --- the viewer's state machine ------------------------------------------------------
 
@@ -364,6 +373,20 @@ if python3 tests/pty_width.py "$BIN" "$WORK/ptywidth" >"$WORK/ptywidth.out" 2>&1
     note "pty width probe: $(tail -1 "$WORK/ptywidth.out")"
 else
     bad "pty width probe" "$(grep -v '^ok' "$WORK/ptywidth.out" | head -12)"
+fi
+
+# the default output (--cat, --dump, every theme and depth) is 0.9.0's, byte for byte
+if python3 tests/default_bytes.py "$BIN" >"$WORK/defaultbytes.out" 2>&1; then
+    note "default output equals 0.9.0: $(tail -1 "$WORK/defaultbytes.out")"
+else
+    bad "default output differs from 0.9.0" "$(head -12 "$WORK/defaultbytes.out")"
+fi
+
+# a transparent page writes no background outside a highlight; the default session writes 0.9.0's bytes
+if python3 tests/pty_transparent.py "$BIN" "$WORK/ptytransparent" >"$WORK/ptytransparent.out" 2>&1; then
+    note "pty transparency: $(tail -1 "$WORK/ptytransparent.out")"
+else
+    bad "pty transparency" "$(grep -v '^ok' "$WORK/ptytransparent.out" | head -12)"
 fi
 
 echo
