@@ -46,7 +46,7 @@ that cannot be read is exit 1.
 | `--theme NAME` | `dark light tokyonight nightfox gruvbox-material plain` | from `COLORFGBG`; `plain` with `NO_COLOR` | |
 | `--transparent MODE` | `on popups off` | `off`; `TUI_MARKDOWN_TRANSPARENT=1\|popups\|0` | draw on the terminal's own background (opacity, blur); see below |
 | `--no-watch` | switch | off | do not reload when the file changes |
-| `--version` | | | `tui-markdown 0.10.0` |
+| `--version` | | | `tui-markdown 0.10.1` |
 | `--completions SHELL` | `bash`, `zsh`, `fish` | | prints a completion script |
 
 The page and editor options (`--dump`, `--max-width`, `--scale`, `--links`, `--colors`,
@@ -274,6 +274,7 @@ deps, deps.lock    version and pins: tui (widgets), term-markdown (parser)
 scripts/build.sh   builds ./tui-markdown
 tests/             test.sh (the one entry point), unit, oracle, goldens, pty
 docs/DESIGN.md     the design and the changes proposed to term-markdown
+docs/BENCHMARKS.md the comparison with glow (time, memory, bytes, what each renders); bench/ reruns it
 RENAMES.md         what changed between releases, for a user or a dependent
 .github/workflows  test.yml (3 platforms), release.yml (v* tags)
 ```

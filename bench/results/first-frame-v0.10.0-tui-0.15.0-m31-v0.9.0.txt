@@ -1,0 +1,3 @@
+ROW tui-markdown first-frame mixed-1m.md 10 1314.9 1477.8 81022 4884
+ROW tui-markdown first-frame mixed-50k.md 30 62.6 99.4 10208 4884
+ROW tui-markdown first-frame readme.md 30 16.0 31.9 9062 4492

@@ -4,6 +4,22 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.10.1
+
+Pins tui 0.16.0 (commit b84fb58), nothing else in the viewer changed: `--cat`, `--dump` and a scripted session on a pty write the
+bytes of 0.10.0 (`tests/default_bytes.py`, `tests/golden/`, `tests/pty_*.py` all unchanged). Built and tested against m31 v0.9.0
+(the 918 checks of `tests/test.sh` pass with tui b84fb58's tree).
+
+- **tui 0.16.0**: a frame that has a hyperlink anywhere no longer sends every row through the per-cell path (tui measured 1893 ->
+  ~640 us for a full 200x50 frame with one link, 579 -> ~410 us for a one-cell diff), `set_str` of CJK and Latin text skips the cluster
+  strings, and `hyperlink_uri` allocates nothing for an ASCII URI. The viewer's first frame is unchanged within noise (interleaved
+  A/B: README 15.2 -> 14.7 ms, 52 KB 58.1 -> 57.5 ms, 1 MB 1178 -> 1124 ms); the gain is in later frames of a page with links, which
+  was not measured at the viewer level.
+- **`bench/`** and **`docs/BENCHMARKS.md`**: tui-markdown against glow 3.0.0 on a README (19 KB), a 50 KB and a 1 MB synthetic
+  document (tables, nested lists, code in five languages, emoji, CJK): wall time including start-up, peak RSS and output bytes to a
+  pipe and to a pty, the interactive first frame, and what each renders that the other does not. `bench/render.py`,
+  `bench/gen_inputs.py`, `bench/fidelity.sh`, the raw results.
+
 ## 0.10.0
 
 Transparent terminals. Pins tui v0.15.0 (unchanged). Built and tested against m31 v0.9.0.

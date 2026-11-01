@@ -1,0 +1,6 @@
+FIRSTFRAME a readme.md runs=30 median_ms=15.2 p95_ms=17.2
+FIRSTFRAME b readme.md runs=30 median_ms=14.7 p95_ms=39.1
+FIRSTFRAME a mixed-50k.md runs=30 median_ms=58.1 p95_ms=116.4
+FIRSTFRAME b mixed-50k.md runs=30 median_ms=57.5 p95_ms=112.8
+FIRSTFRAME a mixed-1m.md runs=10 median_ms=1177.8 p95_ms=1303.0
+FIRSTFRAME b mixed-1m.md runs=10 median_ms=1124.0 p95_ms=1180.4
