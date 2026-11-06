@@ -1,16 +1,16 @@
-// The viewer's own document model: what term-markdown's tree becomes once its
-// inline HTML has been turned back into styled text, and what a layout is.
-//
-// Three layers, each built from the one before:
-//
-//   term-markdown   MD_doc.Document        blocks holding RAW inline source
-//   MDV_prepare     MDV_model.Document     blocks holding styled `Span`s
-//   MDV_layout      MDV_model.Layout       `Row`s of `Span`s, for one width
-//
-// Nothing here draws. A `Span` carries a bit set of what it IS (bold, a link,
-// a bullet that is not part of the text) and the theme (`MDV_theme`) decides
-// what that looks like, so the same layout can be shown on a light terminal, a
-// dark one, or printed with no colour at all.
+/* The viewer's own document model: what term-markdown's tree becomes once its
+ * inline HTML has been turned back into styled text, and what a layout is.
+ *
+ * Three layers, each built from the one before:
+ *
+ *   term-markdown   MD_doc.Document        blocks holding RAW inline source
+ *   MDV_prepare     MDV_model.Document     blocks holding styled `Span`s
+ *   MDV_layout      MDV_model.Layout       `Row`s of `Span`s, for one width
+ *
+ * Nothing here draws. A `Span` carries a bit set of what it IS (bold, a link,
+ * a bullet that is not part of the text) and the theme (`MDV_theme`) decides
+ * what that looks like, so the same layout can be shown on a light terminal, a
+ * dark one, or printed with no colour at all. */
 
 // --- what a span is -------------------------------------------------------------
 
@@ -22,11 +22,11 @@ pub const int ITALIC = 2;
 pub const int CODE = 4;
 /// Part of a link; `Span.link` says which.
 pub const int LINK = 8;
-/// Chrome, not document text: a bullet, a quote bar, a table border, a rule.
-/// The visible-text oracle compares everything that is NOT this.
+/** Chrome, not document text: a bullet, a quote bar, a table border, a rule.
+ * The visible-text oracle compares everything that is NOT this. */
 pub const int DECO = 16;
-/// An image placeholder (`[image: alt]`). Its alt text is not visible text in
-/// the HTML either, so it is DECO as well.
+/** An image placeholder (`[image: alt]`). Its alt text is not visible text in
+ * the HTML either, so it is DECO as well. */
 pub const int IMAGE = 32;
 /// The text of a fenced or indented code block.
 pub const int BLOCK = 64;
@@ -42,8 +42,8 @@ pub const int HEAD_CELL = 1024;
 pub const int TASK = 2048;
 const int LEVEL_SHIFT = 12;
 const int LEVEL_MASK = 7;
-/// Syntax class of a code token: `(class + 1) * SYN_UNIT` in bits 16..20;
-/// 0 there means "not classified".
+/** Syntax class of a code token: `(class + 1) * SYN_UNIT` in bits 16..20;
+ * 0 there means "not classified". */
 pub const int SYN_UNIT = 65536;
 /// Callout kind (1 note, 2 tip, 3 important, 4 warning, 5 caution): bits 21..23.
 pub const int CALLOUT_UNIT = 2097152;
@@ -61,8 +61,8 @@ pub const int RULE = 268435456;
 pub const int META = 536870912;
 /// A footnote reference or a footnote's own text.
 pub const int FOOT = 1073741824;
-/// Heading chrome: the band behind an H1, the bar before an H2, the
-/// under-rule. The level is in the level bits.
+/** Heading chrome: the band behind an H1, the bar before an H2, the
+ * under-rule. The level is in the level bits. */
 pub const int BANNER = 2147483648;
 /// A list bullet or number.
 pub const int BULLET = 4294967296;
@@ -150,8 +150,8 @@ pub type HeadingBlock {
     pub List<Span> spans;
     /// The heading's text with its markup removed.
     pub str plain;
-    /// GitHub-style anchor: `Hello, World!` is `hello-world`; repeated
-    /// headings get `-1`, `-2` appended.
+    /** GitHub-style anchor: `Hello, World!` is `hello-world`; repeated
+     * headings get `-1`, `-2` appended. */
     pub str slug;
     pub int line = 0;
 }
@@ -242,15 +242,15 @@ pub type Heading {
 /// One terminal row of the document.
 pub type Row {
     pub List<Span> spans;
-    /// 0 for an ordinary row; N >= 2 on the first of N rows that a scaled
-    /// (OSC 66) heading covers, -1 on the rows after it. The text of the
-    /// heading is in the spans of the first row.
+    /** 0 for an ordinary row; N >= 2 on the first of N rows that a scaled
+     * (OSC 66) heading covers, -1 on the rows after it. The text of the
+     * heading is in the spans of the first row. */
     pub int big = 0;
-    /// For a source row: the byte offset of the row's text in its source
-    /// line (rows of one wrapped line have increasing offsets).
+    /** For a source row: the byte offset of the row's text in its source
+     * line (rows of one wrapped line have increasing offsets). */
     pub int col = 0;
-    /// The source line of the block this row is_listy to (1-based); 0 when
-    /// the row is chrome between blocks.
+    /** The source line of the block this row is_listy to (1-based); 0 when
+     * the row is chrome between blocks. */
     pub int line = 0;
     /// Which leaf block, in document order; -1 for a row between blocks.
     pub int block = -1;
@@ -286,8 +286,8 @@ pub type Layout {
     pub List<str> blocks;
 }
 
-/// The first row of the block that starts at source line `line`, or of the
-/// nearest block starting before it; 0 when no row is mapped to a line.
+/** The first row of the block that starts at source line `line`, or of the
+ * nearest block starting before it; 0 when no row is mapped to a line. */
 pub int Layout.row_of_line(int line) {
     int best_line = 0;
     int best_row = 0;

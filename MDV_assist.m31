@@ -1,24 +1,24 @@
-// Markdown-aware editing on top of `MDV_edit`: what Enter, Tab, Backspace and
-// the typed brackets mean in a markdown file.
-//
-//   enter(buffer)              continue a list or quote, end it on an empty
-//                              item, close a code fence, add a table row
-//   indent_lines(buffer, is_back)    Tab / Shift-Tab: nest or un-nest list items
-//   type_char(buffer, char, is_smart)   auto-pairs, wrapping a selection,
-//                              skipping a closing bracket, is_smart typography
-//   backspace(buffer)          deletes an empty pair whole
-//   toggle_inline(buffer, marker)    ** * ` ~~ on the selection or the word
-//   set_heading(buffer, level)       Alt-1 .. Alt-6
-//   insert_link(buffer, is_image)    [text](url) / ![alt](url)
-//   toggle_prefix(buffer, kind)      bullet, number, task, quote on the lines
-//   insert_table(buffer) / insert_code_block(buffer) / insert_rule(buffer)
-//   paste(buffer, text, kind)        a URL over a selection makes a link
-//   renumber(buffer, row)            ordered lists count 1, 2, 3 again
-//   table_align(buffer, row)         pipe tables line up
-//   table_move(buffer, is_forward)   Tab between cells
-//
-// Every function is one undo step (`begin` .. `finish`). All of them work on
-// the buffer's lines and caret only, which is what the unit tests drive.
+/* Markdown-aware editing on top of `MDV_edit`: what Enter, Tab, Backspace and
+ * the typed brackets mean in a markdown file.
+ *
+ *   enter(buffer)              continue a list or quote, end it on an empty
+ *                              item, close a code fence, add a table row
+ *   indent_lines(buffer, is_back)    Tab / Shift-Tab: nest or un-nest list items
+ *   type_char(buffer, char, is_smart)   auto-pairs, wrapping a selection,
+ *                              skipping a closing bracket, is_smart typography
+ *   backspace(buffer)          deletes an empty pair whole
+ *   toggle_inline(buffer, marker)    ** * ` ~~ on the selection or the word
+ *   set_heading(buffer, level)       Alt-1 .. Alt-6
+ *   insert_link(buffer, is_image)    [text](url) / ![alt](url)
+ *   toggle_prefix(buffer, kind)      bullet, number, task, quote on the lines
+ *   insert_table(buffer) / insert_code_block(buffer) / insert_rule(buffer)
+ *   paste(buffer, text, kind)        a URL over a selection makes a link
+ *   renumber(buffer, row)            ordered lists count 1, 2, 3 again
+ *   table_align(buffer, row)         pipe tables line up
+ *   table_move(buffer, is_forward)   Tab between cells
+ *
+ * Every function is one undo step (`begin` .. `finish`). All of them work on
+ * the buffer's lines and caret only, which is what the unit tests drive. */
 
 import MDV_edit;
 import tui.core.TUI_text;
@@ -168,8 +168,8 @@ str after_caret(MDV_edit.Buffer buffer) {
     return line.substr(buffer.caret.col, line.size());
 }
 
-/// Replace line `row` wholesale; the caret keeps its place relative to the
-/// end of the line when it is on it.
+/** Replace line `row` wholesale; the caret keeps its place relative to the
+ * end of the line when it is on it. */
 void replace_line(MDV_edit.Buffer buffer, int row, str text) {
     str old = buffer.lines[row];
     if (old == text) {
@@ -302,8 +302,8 @@ pub void enter(MDV_edit.Buffer buffer) {
 
 // --- lists -------------------------------------------------------------------------------------
 
-/// The first and last row of the list region around `row`: a run of items,
-/// blank lines and indented continuations.
+/** The first and last row of the list region around `row`: a run of items,
+ * blank lines and indented continuations. */
 List<int> list_region(MDV_edit.Buffer buffer, int row) {
     int first = row;
     while (first > 0 && is_listy(buffer.lines[first - 1])) {
@@ -332,8 +332,8 @@ type Level {
     int next;
 }
 
-/// Count ordered lists 1, 2, 3 again in the list around `row`; the first
-/// number of each list stays what it is.
+/** Count ordered lists 1, 2, 3 again in the list around `row`; the first
+ * number of each list stays what it is. */
 pub void renumber(MDV_edit.Buffer buffer, int row) {
     if (row < 0 || row >= buffer.lines.size()) {
         return;
@@ -404,8 +404,8 @@ List<int> command_rows(MDV_edit.Buffer buffer) {
     return out;
 }
 
-/// Tab / Shift-Tab: nest or un-nest the list items of the selected lines;
-/// elsewhere insert spaces or remove them.
+/** Tab / Shift-Tab: nest or un-nest the list items of the selected lines;
+ * elsewhere insert spaces or remove them. */
 pub void indent_lines(MDV_edit.Buffer buffer, bool is_back) {
     int row = buffer.caret.row;
     str line = buffer.lines[row];
@@ -493,8 +493,8 @@ Item nearest_item_above(MDV_edit.Buffer buffer, int row) {
     return Item();
 }
 
-/// Backspace: an empty pair goes whole; otherwise as usual. A list item's
-/// bare marker is removed in one go.
+/** Backspace: an empty pair goes whole; otherwise as usual. A list item's
+ * bare marker is removed in one go. */
 pub void backspace(MDV_edit.Buffer buffer) {
     if (!buffer.has_selection() && buffer.caret.col > 0 && buffer.caret.col < buffer.lines[buffer.caret.row].size()) {
         str line = buffer.lines[buffer.caret.row];
@@ -656,8 +656,8 @@ List<MDV_edit.Pos> word_around(MDV_edit.Buffer buffer) {
     return [MDV_edit.Pos(buffer.caret.row, first), MDV_edit.Pos(buffer.caret.row, last)];
 }
 
-/// Wrap the selection (or the word at the caret) in `marker`, or take the
-/// marker off when it is already there.
+/** Wrap the selection (or the word at the caret) in `marker`, or take the
+ * marker off when it is already there. */
 pub void toggle_inline(MDV_edit.Buffer buffer, str marker) {
     buffer.begin("format");
     MDV_edit.Pos first = buffer.sel_start();
@@ -700,8 +700,8 @@ pub void toggle_inline(MDV_edit.Buffer buffer, str marker) {
     buffer.finish();
 }
 
-/// Set the heading level of the caret's line (0 removes it; the same level
-/// again removes it too).
+/** Set the heading level of the caret's line (0 removes it; the same level
+ * again removes it too). */
 pub void set_heading(MDV_edit.Buffer buffer, int level) {
     buffer.begin("heading");
     int row = buffer.caret.row;
@@ -728,8 +728,8 @@ pub void set_heading(MDV_edit.Buffer buffer, int level) {
     buffer.finish();
 }
 
-/// `[text](url)` over the selection or the word, with `url` selected; an
-/// image when `is_image`.
+/** `[text](url)` over the selection or the word, with `url` selected; an
+ * image when `is_image`. */
 pub void insert_link(MDV_edit.Buffer buffer, bool is_image) {
     buffer.begin("link");
     MDV_edit.Pos first = buffer.sel_start();
@@ -831,8 +831,8 @@ pub void toggle_prefix(MDV_edit.Buffer buffer, str kind) {
     buffer.finish();
 }
 
-/// A fenced block around the selected lines, or an empty one with the caret
-/// inside.
+/** A fenced block around the selected lines, or an empty one with the caret
+ * inside. */
 pub void insert_code_block(MDV_edit.Buffer buffer) {
     buffer.begin("code");
     if (buffer.has_selection()) {
@@ -903,8 +903,8 @@ pub bool is_url(str text) {
     return one.starts_with("http://") || one.starts_with("https://") || one.starts_with("mailto:");
 }
 
-/// Paste `text`. `kind` says what the caller found out about it: "" ordinary,
-/// "image" a path to an image file, "file" a path to some other file.
+/** Paste `text`. `kind` says what the caller found out about it: "" ordinary,
+ * "image" a path to an image file, "file" a path to some other file. */
 pub void paste(MDV_edit.Buffer buffer, str raw, str kind) {
     str text = raw.split("\r\n").join("\n").split("\r").join("\n");
     buffer.begin("paste");
@@ -992,8 +992,8 @@ bool is_separator(str line) {
     return true;
 }
 
-/// The first and last row of the table around `row`: two numbers, or an
-/// empty list when `row` is not in a table.
+/** The first and last row of the table around `row`: two numbers, or an
+ * empty list when `row` is not in a table. */
 pub List<int> table_range(MDV_edit.Buffer buffer, int row) {
     if (!is_table_line(buffer.lines[row]) || is_in_fence(buffer, row)) {
         return [];
@@ -1152,8 +1152,8 @@ pub void table_align(MDV_edit.Buffer buffer, int row) {
     buffer.has_anchor = false;
 }
 
-/// The byte range of the text of cell `cell` of `line`: `start` is just
-/// after the `|`, `stop` at the next one.
+/** The byte range of the text of cell `cell` of `line`: `start` is just
+ * after the `|`, `stop` at the next one. */
 List<int> cell_span(str line, int cell) {
     int pipes = 0;
     int start = line.size();
@@ -1185,8 +1185,8 @@ int cell_offset(str line, int col) {
     return col - text_start;
 }
 
-/// The position of `offset` bytes into the text of cell `cell` of `row`; in
-/// an empty cell, just after the space that follows the bar.
+/** The position of `offset` bytes into the text of cell `cell` of `row`; in
+ * an empty cell, just after the space that follows the bar. */
 MDV_edit.Pos cell_position(MDV_edit.Buffer buffer, int row, int cell, int offset) {
     str line = buffer.lines[row];
     List<int> span = cell_span(line, cell);
@@ -1207,8 +1207,8 @@ MDV_edit.Pos cell_position(MDV_edit.Buffer buffer, int row, int cell, int offset
     return MDV_edit.Pos(row, MDV_edit.snap_col(line, target));
 }
 
-/// Tab / Shift-Tab in a table: to the next or previous cell, a new row after
-/// the last cell.
+/** Tab / Shift-Tab in a table: to the next or previous cell, a new row after
+ * the last cell. */
 pub void table_move(MDV_edit.Buffer buffer, bool is_forward) {
     int row = buffer.caret.row;
     List<int> range = table_range(buffer, row);

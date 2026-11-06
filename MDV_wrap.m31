@@ -1,23 +1,23 @@
-// Width-aware wrapping of styled spans.
-//
-// `TUI_text.wrap` wraps a `str`; a document line is many spans of different
-// styles that must stay separate, so the same rules are applied here to a
-// list of spans:
-//
-//   - a line breaks at a run of spaces, which is dropped;
-//   - and between two grapheme clusters when either is two columns wide, so
-//     Chinese, Japanese and Korean text (which has no spaces) wraps;
-//   - a word wider than the whole line is cut at the last cluster that fits;
-//   - a cluster wider than the line is put on a line of its own;
-//   - a hard break (`BREAK` span) ends the line.
-//
-// Nothing here splits a grapheme cluster, so `e` + U+0301 and an emoji with a
-// skin tone stay whole. The result is lines of spans with adjacent same-style
-// spans merged, and no span that holds a space at the end of a line.
-//
-// Plain ASCII, which is nearly all of any document, is scanned byte by byte
-// and cut into words; only text with a byte outside 0x20..0x7E goes through
-// `unicode.graphemes`.
+/* Width-aware wrapping of styled spans.
+ *
+ * `TUI_text.wrap` wraps a `str`; a document line is many spans of different
+ * styles that must stay separate, so the same rules are applied here to a
+ * list of spans:
+ *
+ *   - a line breaks at a run of spaces, which is dropped;
+ *   - and between two grapheme clusters when either is two columns wide, so
+ *     Chinese, Japanese and Korean text (which has no spaces) wraps;
+ *   - a word wider than the whole line is cut at the last cluster that fits;
+ *   - a cluster wider than the line is put on a line of its own;
+ *   - a hard break (`BREAK` span) ends the line.
+ *
+ * Nothing here splits a grapheme cluster, so `e` + U+0301 and an emoji with a
+ * skin tone stay whole. The result is lines of spans with adjacent same-style
+ * spans merged, and no span that holds a space at the end of a line.
+ *
+ * Plain ASCII, which is nearly all of any document, is scanned byte by byte
+ * and cut into words; only text with a byte outside 0x20..0x7E goes through
+ * `unicode.graphemes`. */
 
 import MDV_model;
 import tui.core.TUI_text;
@@ -166,8 +166,8 @@ void Lines.flush() {
     used = 0;
 }
 
-/// Put `text` (one piece of a unit wider than a line) on the lines, cutting
-/// between clusters.
+/** Put `text` (one piece of a unit wider than a line) on the lines, cutting
+ * between clusters. */
 void Lines.pour(MDV_model.Span piece) {
     if (is_plain(piece.text)) {
         int offset = 0;
@@ -196,8 +196,8 @@ void Lines.pour(MDV_model.Span piece) {
     }
 }
 
-/// `spans` wrapped to `width` columns: one list of spans per line. Always at
-/// least one line.
+/** `spans` wrapped to `width` columns: one list of spans per line. Always at
+ * least one line. */
 pub List<List<MDV_model.Span>> wrap(List<MDV_model.Span> spans, int width) {
     int room = width;
     if (room < 1) {

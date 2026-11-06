@@ -1,23 +1,23 @@
-// What a span looks like: style bits to terminal colours.
-//
-// A layout says what each run IS (`MDV_model` style bits); this module is the
-// only place that says what that looks like. A theme is a small palette of
-// named colours (background, text, a dim grey, and the six or seven hues of a
-// colour scheme) from which everything else is derived: tints for block
-// quotes, callouts, code cards and table headers are mixes of the background
-// with a hue, so a new scheme is one table of hex values and nothing else.
-//
-// Colours are 24-bit; `TUI_style.sgr` folds them to the 256 or 16 colours a
-// terminal has when it must, so no theme needs a second table. `plain()` is
-// the theme for NO_COLOR: no colour and no attribute either, so a pipe gets
-// text.
-//
-// Transparency (docs/TRANSPARENCY.md): a terminal shows the desktop through a
-// cell only when the cell's background is the terminal's own, so a theme that
-// paints every surface is opaque on a terminal with opacity or blur.
-// `Theme.transparency` (OFF, ALL, POPUPS) makes every style that leaves this
-// module pass through `transparent_style`, the one place that decides which
-// backgrounds survive. Nothing outside this module builds a colour of its own.
+/* What a span looks like: style bits to terminal colours.
+ *
+ * A layout says what each run IS (`MDV_model` style bits); this module is the
+ * only place that says what that looks like. A theme is a small palette of
+ * named colours (background, text, a dim grey, and the six or seven hues of a
+ * colour scheme) from which everything else is derived: tints for block
+ * quotes, callouts, code cards and table headers are mixes of the background
+ * with a hue, so a new scheme is one table of hex values and nothing else.
+ *
+ * Colours are 24-bit; `TUI_style.sgr` folds them to the 256 or 16 colours a
+ * terminal has when it must, so no theme needs a second table. `plain()` is
+ * the theme for NO_COLOR: no colour and no attribute either, so a pipe gets
+ * text.
+ *
+ * Transparency (docs/TRANSPARENCY.md): a terminal shows the desktop through a
+ * cell only when the cell's background is the terminal's own, so a theme that
+ * paints every surface is opaque on a terminal with opacity or blur.
+ * `Theme.transparency` (OFF, ALL, POPUPS) makes every style that leaves this
+ * module pass through `transparent_style`, the one place that decides which
+ * backgrounds survive. Nothing outside this module builds a colour of its own. */
 
 import MDV_model;
 import tui.core.TUI_style;
@@ -45,8 +45,8 @@ pub const int OFF = 0;
 pub const int ALL = 1;
 /// Only popups, menus and the find bar drop theirs.
 pub const int POPUPS = 2;
-/// What a style is, for `transparent_style`.
-/// A surface: the page, bars, the sidebar, tints behind text.
+/** What a style is, for `transparent_style`.
+ * A surface: the page, bars, the sidebar, tints behind text. */
 const int SURFACE = 0;
 /// A highlight (selection, search hit, the focused link, a chosen row): keeps its background.
 const int HIGHLIGHT = 1;
@@ -297,8 +297,8 @@ bool is_on(int bits, int bit) {
     return (bits & bit) != 0;
 }
 
-/// The style of a span whose style bits are `bits`: the theme's look, then
-/// what transparency leaves of it.
+/** The style of a span whose style bits are `bits`: the theme's look, then
+ * what transparency leaves of it. */
 pub TUI_style.Style style_for(Theme theme, int bits) {
     TUI_style.Style look = look_for(theme, bits);
     if (theme.transparency == OFF) {
@@ -481,8 +481,8 @@ pub TUI_style.Style focus_style(Theme theme, TUI_style.Style base) {
     if (theme.transparency != ALL || theme.is_plain) {
         return base.with_attrs(base.attrs | TUI_style.REVERSE | TUI_style.BOLD);
     }
-    // Reverse video would paint the terminal's own text colour as a background:
-    // the same swap with the theme's colours, and no colour read from the desktop.
+    /* Reverse video would paint the terminal's own text colour as a background:
+     * the same swap with the theme's colours, and no colour read from the desktop. */
     TUI_style.Colour block = base.foreground;
     if (block.eq(TUI_style.Colour.Default)) {
         block = colour(theme.colours.ink);
@@ -508,8 +508,8 @@ pub TUI_style.Style accent_style(Theme theme) {
     return transparent_style(theme.transparency, BADGE, accent_look(theme));
 }
 
-/// The chosen row of a list (the command palette, the outline popup): the
-/// accent look, kept as a highlight.
+/** The chosen row of a list (the command palette, the outline popup): the
+ * accent look, kept as a highlight. */
 pub TUI_style.Style select_style(Theme theme) {
     return transparent_style(theme.transparency, HIGHLIGHT, accent_look(theme));
 }
@@ -535,8 +535,8 @@ TUI_style.Style quiet_look(Theme theme) {
     return TUI_style.Style(foreground: colour(pal.dim), background: colour(mix(pal.page, pal.ink, 12)));
 }
 
-/// Popups sit on a background of their own so the text under them does not
-/// show through.
+/** Popups sit on a background of their own so the text under them does not
+ * show through. */
 pub TUI_style.Style popup_style(Theme theme) {
     return transparent_style(theme.transparency, POPUP, popup_look(theme));
 }
@@ -580,9 +580,9 @@ TUI_style.Style thumb_look(Theme theme, bool is_thumb) {
 
 // --- transparency ---------------------------------------------------------------------
 
-/// The relative luminance of 0xRRGGBB in thousandths (sRGB approximated by squaring each
-/// channel): near-black text reads on a background above 179, near-white below it, which
-/// is where the two have the same contrast ratio.
+/** The relative luminance of 0xRRGGBB in thousandths (sRGB approximated by squaring each
+ * channel): near-black text reads on a background above 179, near-white below it, which
+ * is where the two have the same contrast ratio. */
 int luminance(int rgb) {
     int red = channel(rgb, 16);
     int green = channel(rgb, 8);
@@ -590,8 +590,8 @@ int luminance(int rgb) {
     return (299 * red * red + 587 * green * green + 114 * blue * blue) / 65025;
 }
 
-/// Near-black or near-white, whichever reads on `block` (a background); the
-/// colour itself when it cannot be told (the terminal's default).
+/** Near-black or near-white, whichever reads on `block` (a background); the
+ * colour itself when it cannot be told (the terminal's default). */
 TUI_style.Colour readable_on(TUI_style.Colour block) {
     int rgb = 0;
     match (block) {
@@ -611,18 +611,18 @@ TUI_style.Colour readable_on(TUI_style.Colour block) {
     return colour(0xf5f5f5);
 }
 
-/// What is left of `style` (of kind `kind`) when the terminal is asked to show the
-/// desktop. This is the one place that says so: a terminal paints every explicit
-/// background opaque, so only a highlight may keep one.
-///
-///   HIGHLIGHT  keeps its background and gets text that reads on it (ALL);
-///   BADGE      the block goes, its colour becomes the (bold) text colour (ALL);
-///   POPUP      loses its background in ALL and in POPUPS;
-///   SURFACE    loses its background in ALL.
-///
-/// A reversed style that is not a highlight loses its reversal (reverse video
-/// paints the terminal's text colour as a block); no colour of the desktop is
-/// ever read or mixed.
+/** What is left of `style` (of kind `kind`) when the terminal is asked to show the
+ * desktop. This is the one place that says so: a terminal paints every explicit
+ * background opaque, so only a highlight may keep one.
+ *
+ *   HIGHLIGHT  keeps its background and gets text that reads on it (ALL);
+ *   BADGE      the block goes, its colour becomes the (bold) text colour (ALL);
+ *   POPUP      loses its background in ALL and in POPUPS;
+ *   SURFACE    loses its background in ALL.
+ *
+ * A reversed style that is not a highlight loses its reversal (reverse video
+ * paints the terminal's text colour as a block); no colour of the desktop is
+ * ever read or mixed. */
 pub TUI_style.Style transparent_style(int mode, int kind, TUI_style.Style style) {
     if (mode == OFF) {
         return style;

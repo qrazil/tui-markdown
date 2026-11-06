@@ -1,10 +1,10 @@
-// Unit tests for the editing core and the markdown assists: no terminal.
-//
-// A buffer is written as text with its caret as `‸` and a selection as
-// `«` .. `»` (the caret at the `»`); `show` writes one back the same way, so a
-// test reads "before -> command -> after".
-//
-// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+/* Unit tests for the editing core and the markdown assists: no terminal.
+ *
+ * A buffer is written as text with its caret as `‸` and a selection as
+ * `«` .. `»` (the caret at the `»`); `show` writes one back the same way, so a
+ * test reads "before -> command -> after".
+ *
+ * Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`. */
 
 import MDV_assist;
 import MDV_edit;

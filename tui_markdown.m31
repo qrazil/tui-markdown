@@ -1,11 +1,11 @@
-// tui-markdown -- a terminal markdown viewer with vim keys.
-//
-//   tui-markdown README.md          read it
-//   tui-markdown a.md b.md          several; > and < move between them
-//   cat notes.md | tui-markdown     from standard input
-//   tui-markdown --cat README.md    print the rendering (what a pipe gets)
-//
-// See README.md for the keys and docs/design.md for how it is built.
+/* tui-markdown -- a terminal markdown viewer with vim keys.
+ *
+ *   tui-markdown README.md          read it
+ *   tui-markdown a.md b.md          several; > and < move between them
+ *   cat notes.md | tui-markdown     from standard input
+ *   tui-markdown --cat README.md    print the rendering (what a pipe gets)
+ *
+ * See README.md for the keys and docs/design.md for how it is built. */
 
 import MDV_cli;
 import os;

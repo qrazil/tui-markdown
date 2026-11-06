@@ -1,33 +1,33 @@
-// The editing core: lines of text, a caret, a selection, and undo.
-//
-// No terminal, no layout, no markdown in here; `MDV_assist` adds the markdown
-// rules and `MDV_viewer` the keys and the screen. Everything that changes the
-// text goes through `splice`, which records what it removed and what it put
-// in its place, so undo is the same call run backwards.
-//
-// API
+/* The editing core: lines of text, a caret, a selection, and undo.
+ *
+ * No terminal, no layout, no markdown in here; `MDV_assist` adds the markdown
+ * rules and `MDV_viewer` the keys and the screen. Everything that changes the
+ * text goes through `splice`, which records what it removed and what it put
+ * in its place, so undo is the same call run backwards.
+ *
+ * API */
 // ---
-//   MDV_edit.Pos(row, col)           0-based row, byte column on a grapheme boundary
-//   MDV_edit.Buffer.of(text)         a buffer for file text (lines split on \n)
-//   buffer.text()                    the text back (what a save writes)
-//   buffer.splice(from, to, text)    the one mutator; answers where the text ends
-//   buffer.insert(text)              at the caret, over the selection
-//   buffer.delete_back() / delete_forward() / delete_word_back() / delete_word_forward()
-//   buffer.move(Motion, is_extend)      caret motions; `is_extend` grows the selection
-//   buffer.begin(kind) / seal()      open or close an undo group (see below)
-//   buffer.did_undo() / redo()           walk the groups; the caret lands where it was
-//   buffer.is_dirty()                has the text changed since `mark_saved`
-//
-// Undo groups. A command opens a group with `begin(kind)` and every splice
-// until `seal()` is_listy to it. Typing ("type") joins the open group while the
-// caret has not moved away, so a run of letters is one undo step; every other
-// kind starts a group of its own, and moving the caret seals the open one.
+/*   MDV_edit.Pos(row, col)           0-based row, byte column on a grapheme boundary
+ *   MDV_edit.Buffer.of(text)         a buffer for file text (lines split on \n)
+ *   buffer.text()                    the text back (what a save writes)
+ *   buffer.splice(from, to, text)    the one mutator; answers where the text ends
+ *   buffer.insert(text)              at the caret, over the selection
+ *   buffer.delete_back() / delete_forward() / delete_word_back() / delete_word_forward()
+ *   buffer.move(Motion, is_extend)      caret motions; `is_extend` grows the selection
+ *   buffer.begin(kind) / seal()      open or close an undo group (see below)
+ *   buffer.did_undo() / redo()           walk the groups; the caret lands where it was
+ *   buffer.is_dirty()                has the text changed since `mark_saved`
+ *
+ * Undo groups. A command opens a group with `begin(kind)` and every splice
+ * until `seal()` is_listy to it. Typing ("type") joins the open group while the
+ * caret has not moved away, so a run of letters is one undo step; every other
+ * kind starts a group of its own, and moving the caret seals the open one. */
 
 import tui.core.TUI_text;
 import tui.core.TUI_word;
 
-/// A position: `col` is a byte offset on a grapheme boundary, and may equal
-/// the line's size (after the last character).
+/** A position: `col` is a byte offset on a grapheme boundary, and may equal
+ * the line's size (after the last character). */
 pub type Pos {
     pub int row;
     pub int col;
@@ -108,8 +108,8 @@ pub type Buffer {
     pub int counter = 0;
     /// Is the buffer applying undo or redo (so splice records nothing)?
     pub bool is_replaying = false;
-    /// The first row any splice has touched since the owner last reset this
-    /// (what a highlight cache must forget from).
+    /** The first row any splice has touched since the owner last reset this
+     * (what a highlight cache must forget from). */
     pub int dirty_from = 1000000000;
 }
 
@@ -217,8 +217,8 @@ pub Pos Buffer.clamp(Pos target) {
     return Pos(row, snap_col(lines[row], target.col));
 }
 
-/// Replace `from` .. `to` with `inserted`; answers where the inserted text
-/// ends. The caret is not moved: the caller says where it goes.
+/** Replace `from` .. `to` with `inserted`; answers where the inserted text
+ * ends. The caret is not moved: the caller says where it goes. */
 pub Pos Buffer.splice(Pos from, Pos upto, str inserted) {
     str removed = text_between(from, upto);
     if (from.row < dirty_from) {

@@ -1,8 +1,8 @@
-// Find and replace over the buffer's text.
-//
-// Matches are positions in the source lines (never in the rendered text), so
-// replacing one is a splice. A needle with no capital letter ignores case
-// (smart case) unless `is_exact` says otherwise.
+/* Find and replace over the buffer's text.
+ *
+ * Matches are positions in the source lines (never in the rendered text), so
+ * replacing one is a splice. A needle with no capital letter ignores case
+ * (smart case) unless `is_exact` says otherwise. */
 
 import MDV_edit;
 
@@ -41,8 +41,8 @@ pub void Finder.search(List<str> lines) {
         }
         if (!is_cased) {
             str lowered = line.to_lower();
-            // A letter whose lower case has another length would put a match
-            // at the wrong byte; such a line is skipped.
+            /* A letter whose lower case has another length would put a match
+             * at the wrong byte; such a line is skipped. */
             if (lowered.size() != line.size()) {
                 continue;
             }

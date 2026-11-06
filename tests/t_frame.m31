@@ -1,10 +1,10 @@
-// What `Screen` hands the loop after a frame (`TUI_app.AfterFrame`): the scaled
-// headings (OSC 66) are in the same bytes as the cells, are answered only when
-// they have to be, and are sent again after a frame whose diff wrote a cell of
-// theirs. No terminal: frames are made by `Screen.render` and composed by
-// `Loop.frame_bytes`, the function `run_with` writes.
-//
-// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+/* What `Screen` hands the loop after a frame (`TUI_app.AfterFrame`): the scaled
+ * headings (OSC 66) are in the same bytes as the cells, are answered only when
+ * they have to be, and are sent again after a frame whose diff wrote a cell of
+ * theirs. No terminal: frames are made by `Screen.render` and composed by
+ * `Loop.frame_bytes`, the function `run_with` writes.
+ *
+ * Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`. */
 
 import MDV_caps;
 import MDV_render;
@@ -44,8 +44,8 @@ const int COLUMNS = 40;
 const int ROWS = 14;
 const str SCALED = "\x1b]66;s=2;Title";
 
-/// The byte offset of `needle` in `text`, -1 for none (compared byte by byte:
-/// a frame holds multi-byte characters, which `substr` will not cut).
+/** The byte offset of `needle` in `text`, -1 for none (compared byte by byte:
+ * a frame holds multi-byte characters, which `substr` will not cut). */
 int position(str text, str needle) {
     int last = text.size() - needle.size();
     for (int start in 0 .. last + 1) {

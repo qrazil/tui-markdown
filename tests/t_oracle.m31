@@ -1,12 +1,12 @@
-// Dumps what the viewer would show as text, and what term-markdown renders
-// as HTML, for each file named on the command line:
-//
-//   t_oracle WIDTH FILE...
-//
-// For each file: a line `@@@TEXT FILE`, the `Row.content()` of every row of
-// the layout (decoration such as bullets and borders left out), then
-// `@@@HTML FILE` and the HTML term-markdown makes of the same source.
-// tests/oracle.py compares the two with whitespace taken out.
+/* Dumps what the viewer would show as text, and what term-markdown renders
+ * as HTML, for each file named on the command line:
+ *
+ *   t_oracle WIDTH FILE...
+ *
+ * For each file: a line `@@@TEXT FILE`, the `Row.content()` of every row of
+ * the layout (decoration such as bullets and borders left out), then
+ * `@@@HTML FILE` and the HTML term-markdown makes of the same source.
+ * tests/oracle.py compares the two with whitespace taken out. */
 
 import MDV_layout;
 import MDV_model;

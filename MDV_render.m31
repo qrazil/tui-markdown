@@ -1,9 +1,9 @@
-// A `Viewer` on the screen.
-//
-// `Screen.render` is a `TUI_widget.Widget`: given a buffer it draws the rows
-// the viewer's window shows, the status line, and whichever popup is open.
-// It reads the viewer and changes nothing but the window height the viewer
-// keeps (so a resize that arrives between two keys is seen).
+/* A `Viewer` on the screen.
+ *
+ * `Screen.render` is a `TUI_widget.Widget`: given a buffer it draws the rows
+ * the viewer's window shows, the status line, and whichever popup is open.
+ * It reads the viewer and changes nothing but the window height the viewer
+ * keeps (so a resize that arrives between two keys is seen). */
 
 import MDV_actions;
 import MDV_caps;
@@ -21,10 +21,10 @@ import tui.core.TUI_style;
 import tui.core.TUI_text;
 import tui.core.TUI_widget;
 
-/// A stretch of the screen the cell buffer cannot describe on its own: a
-/// scaled heading (OSC 66), drawn over the cells in the same write as the
-/// frame (`Screen.after_frame`). (A link, OSC 8, is a property of the cells and
-/// is marked with `Buffer.link`.)
+/** A stretch of the screen the cell buffer cannot describe on its own: a
+ * scaled heading (OSC 66), drawn over the cells in the same write as the
+ * frame (`Screen.after_frame`). (A link, OSC 8, is a property of the cells and
+ * is marked with `Buffer.link`.) */
 type Region {
     int x;
     int y;
@@ -39,9 +39,9 @@ bool Region.is_same(Region other) {
     return x == other.x && y == other.y && width == other.width && scale == other.scale && text == other.text && style == other.style;
 }
 
-/// Is this region's block of cells (`width` columns, two rows) different in
-/// `now` from what it was in `before`? A cell written over a scaled heading
-/// takes it off the screen, and the diff writes exactly the cells that differ.
+/** Is this region's block of cells (`width` columns, two rows) different in
+ * `now` from what it was in `before`? A cell written over a scaled heading
+ * takes it off the screen, and the diff writes exactly the cells that differ. */
 bool Region.is_touched(TUI_buffer.Buffer before, TUI_buffer.Buffer now) {
     for (int row in y .. y + 2) {
         for (int column in x .. x + width) {
@@ -59,16 +59,16 @@ pub type Screen {
     pub MDV_caps.Caps caps = MDV_caps.bare();
     /// The scaled headings of the frame being drawn.
     List<Region> regions = [];
-    /// The headings the last `after_frame` answer left on the screen, and the
-    /// frame it was asked about: what a later frame is compared with.
+    /** The headings the last `after_frame` answer left on the screen, and the
+     * frame it was asked about: what a later frame is compared with. */
     List<Region> sent = [];
     TUI_buffer.Buffer seen = TUI_buffer.Buffer.sized(0, 0);
     /// The layout row the caret is on this frame, -1 for none.
     int caret_index = -1;
 }
 
-/// `spans` of one row drawn at `x`, `y`: the search hits marked, and the
-/// focused link reversed.
+/** `spans` of one row drawn at `x`, `y`: the search hits marked, and the
+ * focused link reversed. */
 void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_model.Row row, int last_y) {
     List<MDV_viewer.Hit> row_hits = viewer.hits_between(row_index, row_index + 1);
     int column = x;
@@ -87,9 +87,9 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
             base = base.with_attrs(base.attrs | TUI_style.BOLD);
         }
         if (is_big && span.has_bits(MDV_model.HEADING) && !span.has_bits(MDV_model.DECO)) {
-            // The cells under a scaled heading hold a placeholder, so the diff
-            // sees them change when the heading moves; the heading itself is
-            // written over them after the frame.
+            /* The cells under a scaled heading hold a placeholder, so the diff
+             * sees them change when the heading moves; the heading itself is
+             * written over them after the frame. */
             int wide = 2 * TUI_text.width(span.text);
             buffer.fill(TUI_geometry.Rect(column, y, wide, 2), "\u{2800}", base);
             regions.push(Region(column, y, wide, row.big, span.text, base.pack()));
@@ -141,8 +141,8 @@ void Screen.draw_row(TUI_buffer.Buffer buffer, int x, int y, int row_index, MDV_
     }
 }
 
-/// The text of a source row as spans: coloured by what markdown makes of the
-/// byte, and the selected stretch marked.
+/** The text of a source row as spans: coloured by what markdown makes of the
+ * byte, and the selected stretch marked. */
 List<MDV_model.Span> Screen.expand_source(MDV_model.Row row) {
     str text = row.spans[0].text;
     int line_index = row.line - 1;
@@ -207,8 +207,8 @@ List<MDV_model.Span> Screen.expand_source(MDV_model.Row row) {
     return out;
 }
 
-/// The caret: the cell it is on, reversed (a space after the text at the end
-/// of a line).
+/** The caret: the cell it is on, reversed (a space after the text at the end
+ * of a line). */
 void Screen.draw_caret(TUI_buffer.Buffer buffer, int x, int y, MDV_model.Row row) {
     str text = row.spans[0].text;
     int relative = viewer.buffer.caret.col - row.col;
@@ -230,8 +230,8 @@ void Screen.draw_caret(TUI_buffer.Buffer buffer, int x, int y, MDV_model.Row row
     buffer.set_style(caret_x, y, here.style.with_attrs(here.style.attrs ^ TUI_style.REVERSE));
 }
 
-/// Mark columns `first` up to `stop` of row `y` as a link (OSC 8) the terminal
-/// should know about. Whatever is drawn over them later takes the mark off.
+/** Mark columns `first` up to `stop` of row `y` as a link (OSC 8) the terminal
+ * should know about. Whatever is drawn over them later takes the mark off. */
 void Screen.note_link(TUI_buffer.Buffer buffer, MDV_model.Span span, int first, int stop, int y) {
     if (caps.has_links && span.link >= 0 && span.has_bits(MDV_model.LINK) && stop > first && MDV_cat.is_openable(viewer.layout.links[span.link].href)) {
         buffer.link(TUI_geometry.Rect(first, y, stop - first, 1), viewer.layout.links[span.link].href);
@@ -393,8 +393,8 @@ void Screen.draw_help(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     menu.render(buffer, area);
 }
 
-/// The top row: the outline button, the breadcrumb of headings above the
-/// window, and on the right the three panes and the theme button.
+/** The top row: the outline button, the breadcrumb of headings above the
+ * window, and on the right the three panes and the theme button. */
 void Screen.draw_header(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     int y = area.y;
     TUI_style.Style bar = MDV_theme.status_style(theme);
@@ -466,8 +466,8 @@ void Screen.draw_header(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// The formatting toolbar of the editing panes: one clickable button for each
-/// of the most used commands.
+/** The formatting toolbar of the editing panes: one clickable button for each
+ * of the most used commands. */
 void Screen.draw_toolbar(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     int y = area.y + 1;
     TUI_style.Style bar = MDV_theme.side_style(theme);
@@ -562,9 +562,9 @@ void Screen.draw_find(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// The command palette: a box near the top with a query line and the
-/// matching actions, the chosen one marked; where it was drawn is kept on
-/// the viewer so a click can find a row.
+/** The command palette: a box near the top with a query line and the
+ * matching actions, the chosen one marked; where it was drawn is kept on
+ * the viewer so a click can find a row. */
 void Screen.draw_palette(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     List<MDV_actions.Action> items = viewer.palette_items();
     int wide = 64;
@@ -632,8 +632,8 @@ void Screen.draw_palette(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// The docked outline: every heading, indented by level, the one the window
-/// is in marked; a click on a row goes there.
+/** The docked outline: every heading, indented by level, the one the window
+ * is in marked; a click on a row goes there. */
 void Screen.draw_side(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     int wide = viewer.side_width();
     if (wide == 0) {
@@ -712,12 +712,12 @@ void Screen.draw_scrollbar(TUI_buffer.Buffer buffer, TUI_geometry.Rect area) {
     }
 }
 
-/// The `TUI_app.AfterFrame` hook: the scaled headings (OSC 66, which are not
-/// cells) go in the same write as the frame, after its cells. A heading is
-/// answered when `is_full` says the screen was rewritten, when it was not on
-/// the screen before (or has moved, or changed), and when the diff wrote a cell
-/// of its block; a frame that leaves the headings where they were answers
-/// nothing, so it is not written at all when no cell changed either.
+/** The `TUI_app.AfterFrame` hook: the scaled headings (OSC 66, which are not
+ * cells) go in the same write as the frame, after its cells. A heading is
+ * answered when `is_full` says the screen was rewritten, when it was not on
+ * the screen before (or has moved, or changed), and when the diff wrote a cell
+ * of its block; a frame that leaves the headings where they were answers
+ * nothing, so it is not written at all when no cell changed either. */
 pub bytes Screen.after_frame(TUI_buffer.Buffer frame, bool is_full) {
     bytes out = [];
     if (regions.size() == 0) {

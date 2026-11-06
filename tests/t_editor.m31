@@ -1,8 +1,8 @@
-// Unit tests for editing in the viewer: panes, typing, selection with the
-// mouse, undo, saving, the palette, find and replace, Live's source block.
-// No terminal: keys are typed by name and the buffer and layout read back.
-//
-// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+/* Unit tests for editing in the viewer: panes, typing, selection with the
+ * mouse, undo, saving, the palette, find and replace, Live's source block.
+ * No terminal: keys are typed by name and the buffer and layout read back.
+ *
+ * Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`. */
 
 import MDV_keys;
 import MDV_model;

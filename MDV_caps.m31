@@ -1,10 +1,10 @@
-// What the terminal can do, as far as the environment says.
-//
-// Nothing is probed: a query has to be answered through the input stream and
-// macOS Terminal.app prints the payload of a query it does not know, so the
-// decision is made from the variables terminals set about themselves
-// (docs/DESIGN.md, "Capabilities"). A flag can always be overridden on the
-// command line, and every feature has a plain fallback.
+/* What the terminal can do, as far as the environment says.
+ *
+ * Nothing is probed: a query has to be answered through the input stream and
+ * macOS Terminal.app prints the payload of a query it does not know, so the
+ * decision is made from the variables terminals set about themselves
+ * (docs/DESIGN.md, "Capabilities"). A flag can always be overridden on the
+ * command line, and every feature has a plain fallback. */
 
 import os;
 import tui.core.TUI_style;
@@ -12,9 +12,9 @@ import tui.core.TUI_style;
 pub type Caps {
     /// OSC 8 hyperlinks.
     pub bool has_links = false;
-    /// Synchronized output (DEC mode 2026): the loop asks the terminal and uses
-    /// it only when it answers. A query is written, so it is only asked of a
-    /// terminal that is known to drop what it does not know.
+    /** Synchronized output (DEC mode 2026): the loop asks the terminal and uses
+     * it only when it answers. A query is written, so it is only asked of a
+     * terminal that is known to drop what it does not know. */
     pub bool has_sync = false;
     /// OSC 66 scaled text (the kitty text sizing protocol).
     pub bool has_scale = false;
@@ -41,8 +41,8 @@ bool is_set(str name) {
     }
 }
 
-/// Decide from the environment values given (the program passes the real
-/// ones; a test passes made-up ones).
+/** Decide from the environment values given (the program passes the real
+ * ones; a test passes made-up ones). */
 pub Caps from_values(str term_name, str program, str colorterm, str lc_terminal, bool is_kitty_window, bool is_wezterm, bool is_ghostty, bool is_vte, bool is_windows_terminal, bool is_konsole) {
     Caps out = Caps();
     bool is_apple = program == "Apple_Terminal";

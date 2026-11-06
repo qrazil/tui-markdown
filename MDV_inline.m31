@@ -1,21 +1,21 @@
-// Inline HTML back to styled spans.
-//
-// term-markdown's inline pass (`MD_inlines.render`) answers HTML and nothing
-// else: there is no inline tree to import. Its output is a small, closed
-// language -- text with `&amp; &lt; &gt; &quot; &#x27;` escapes, and the tags
-// `em`, `strong`, `code`, `a`, `img` and `br` -- because every literal `<` in
-// the source is escaped on the way out. Reading that back is a few dozen
-// lines and keeps the visible text exactly what the HTML says, which is what
-// the oracle test compares against.
-//
-// The upstream change that would make this module unnecessary is an inline
-// AST (docs/DESIGN.md, "What term-markdown would need").
+/* Inline HTML back to styled spans.
+ *
+ * term-markdown's inline pass (`MD_inlines.render`) answers HTML and nothing
+ * else: there is no inline tree to import. Its output is a small, closed
+ * language -- text with `&amp; &lt; &gt; &quot; &#x27;` escapes, and the tags
+ * `em`, `strong`, `code`, `a`, `img` and `br` -- because every literal `<` in
+ * the source is escaped on the way out. Reading that back is a few dozen
+ * lines and keeps the visible text exactly what the HTML says, which is what
+ * the oracle test compares against.
+ *
+ * The upstream change that would make this module unnecessary is an inline
+ * AST (docs/DESIGN.md, "What term-markdown would need"). */
 
 import MDV_model;
 
-/// The text of one `&...;` reference starting at `start` (which holds the
-/// `&`), and the offset just past it; the reference itself when it is not one
-/// of the five escapes or a numeric character reference.
+/** The text of one `&...;` reference starting at `start` (which holds the
+ * `&`), and the offset just past it; the reference itself when it is not one
+ * of the five escapes or a numeric character reference. */
 type Entity {
     str text;
     int after;
@@ -258,8 +258,8 @@ void Reader.add_image(Tag tag) {
         spans.push(MDV_model.Span("[image]", style: mark, link: target));
         return;
     }
-    // The alt text is part of the document (search finds it, yank copies it);
-    // the brackets around it are decoration.
+    /* The alt text is part of the document (search finds it, yank copies it);
+     * the brackets around it are decoration. */
     spans.push(MDV_model.Span("[image: ", style: mark, link: target));
     spans.push(MDV_model.Span(alt, style: base_style | MDV_model.IMAGE | MDV_model.LINK, link: target));
     spans.push(MDV_model.Span("]", style: mark, link: target));
@@ -269,10 +269,10 @@ void Reader.add_image(Tag tag) {
     }
 }
 
-/// The styled spans of `html`, an inline fragment as `MD_inlines.render`
-/// writes it. Links found are appended to `links` and the spans name them by
-/// index. `base_style` is OR-ed into every span (a heading's, a header cell's).
-/// Soft line breaks become a space; a hard break is a span of style `BREAK`.
+/** The styled spans of `html`, an inline fragment as `MD_inlines.render`
+ * writes it. Links found are appended to `links` and the spans name them by
+ * index. `base_style` is OR-ed into every span (a heading's, a header cell's).
+ * Soft line breaks become a space; a hard break is a span of style `BREAK`. */
 pub List<MDV_model.Span> parse(str html, List<MDV_model.Link> links, int base_style) {
     Reader reader = Reader([], links, base_style);
     int length = html.size();

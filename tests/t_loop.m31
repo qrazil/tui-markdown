@@ -1,12 +1,12 @@
-// The loop's settings (`MDV_cli.make_loop`) and the on/off/auto switches
-// (`MDV_cli.is_switched_on`).
-//
-// The loop's entry and exit: the bytes written on entry and on
-// the way out are what 0.6.0 wrote when it put the mouse modes in `enter` and
-// `leave` by hand, now that `should_report_raw_mouse` and `should_report_hover`
-// ask the loop for them. No terminal.
-//
-// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+/* The loop's settings (`MDV_cli.make_loop`) and the on/off/auto switches
+ * (`MDV_cli.is_switched_on`).
+ *
+ * The loop's entry and exit: the bytes written on entry and on
+ * the way out are what 0.6.0 wrote when it put the mouse modes in `enter` and
+ * `leave` by hand, now that `should_report_raw_mouse` and `should_report_hover`
+ * ask the loop for them. No terminal.
+ *
+ * Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`. */
 
 import MDV_caps;
 import MDV_cli;
@@ -39,8 +39,8 @@ void Tally.check(str name, bool is_true) {
     }
 }
 
-/// A sequence without the autowrap switches tui 0.13.0 added (`?7l` on entry, `?7h` on leaving): where
-/// they sit among the modes is the loop's business, the modes themselves are what is compared.
+/** A sequence without the autowrap switches tui 0.13.0 added (`?7l` on entry, `?7h` on leaving): where
+ * they sit among the modes is the loop's business, the modes themselves are what is compared. */
 str without_autowrap(str sequence) {
     return sequence.split("\x1b[?7l").join("").split("\x1b[?7h").join("");
 }

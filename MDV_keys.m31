@@ -1,17 +1,17 @@
-// Keys by name.
-//
-// The viewer's state machine decides on names, not on `term.Code` variants:
-// `j`, `ctrl-d`, `enter`, `backtab`. A name is what the help screen shows and
-// what a test types, and one `match` here turns the 17 key codes into it so
-// that no other module needs to.
+/* Keys by name.
+ *
+ * The viewer's state machine decides on names, not on `term.Code` variants:
+ * `j`, `ctrl-d`, `enter`, `backtab`. A name is what the help screen shows and
+ * what a test types, and one `match` here turns the 17 key codes into it so
+ * that no other module needs to. */
 
 import term;
 
-/// The name of `key`: the character itself for a plain printable key (a
-/// shifted letter is the capital, as the terminal sends it), `ctrl-d` and
-/// `alt-x` with modifiers, `space`, `enter`, `tab`, `backtab`, `backspace`,
-/// `esc`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`,
-/// `insert`, `delete`, and `f5` and the like.
+/** The name of `key`: the character itself for a plain printable key (a
+ * shifted letter is the capital, as the terminal sends it), `ctrl-d` and
+ * `alt-x` with modifiers, `space`, `enter`, `tab`, `backtab`, `backspace`,
+ * `esc`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`,
+ * `insert`, `delete`, and `f5` and the like. */
 pub str name_of(term.Key key) {
     str base = "";
     match (key.code) {
@@ -135,8 +135,8 @@ pub str name_of(term.Key key) {
     return prefix + base;
 }
 
-/// The code point of a plain character key (no ctrl, no alt), -1 for any
-/// other key.
+/** The code point of a plain character key (no ctrl, no alt), -1 for any
+ * other key. */
 pub int char_of(term.Key key) {
     if (key.has_modifiers(term.CTRL) || key.has_modifiers(term.ALT)) {
         return -1;
@@ -152,9 +152,9 @@ pub int char_of(term.Key key) {
     return -1;
 }
 
-/// The key a name stands for: the inverse of `name_of` for every key the
-/// viewer knows, so a test can type `ctrl-d` or `G`. A name that is not one is
-/// the plain character keys of its text taken one at a time by `keys_of`.
+/** The key a name stands for: the inverse of `name_of` for every key the
+ * viewer knows, so a test can type `ctrl-d` or `G`. A name that is not one is
+ * the plain character keys of its text taken one at a time by `keys_of`. */
 pub term.Key key_of(str name) {
     int mods = 0;
     str rest = name;

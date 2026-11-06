@@ -1,17 +1,17 @@
-// Layouts for editing: Source (every line of the file as it is) and Live
-// (the block with the caret as source, every other block rendered).
-//
-// Both produce an ordinary `MDV_model.Layout`, so scrolling, search, the
-// outline and the mouse work on them as they do in Preview. A source row has
-// the `RAW` style bit on its text, `Row.line` is its 1-based source line and
-// `Row.col` the byte offset of its text in that line, which is all the screen
-// needs to draw the caret and the selection and the mouse needs to place the
-// caret.
-//
-// Live follows Obsidian's live preview, at the grain of a block: a block is a
-// paragraph, a heading, a whole list, a table, a code fence. Rendered blocks
-// are laid out once per document and width and kept in a `LiveCache`; moving
-// the caret only changes which block is written as source.
+/* Layouts for editing: Source (every line of the file as it is) and Live
+ * (the block with the caret as source, every other block rendered).
+ *
+ * Both produce an ordinary `MDV_model.Layout`, so scrolling, search, the
+ * outline and the mouse work on them as they do in Preview. A source row has
+ * the `RAW` style bit on its text, `Row.line` is its 1-based source line and
+ * `Row.col` the byte offset of its text in that line, which is all the screen
+ * needs to draw the caret and the selection and the mouse needs to place the
+ * caret.
+ *
+ * Live follows Obsidian's live preview, at the grain of a block: a block is a
+ * paragraph, a heading, a whole list, a table, a code fence. Rendered blocks
+ * are laid out once per document and width and kept in a `LiveCache`; moving
+ * the caret only changes which block is written as source. */
 
 import MDV_layout;
 import MDV_model;
@@ -20,8 +20,8 @@ import tui.core.TUI_text;
 
 const int MIN_WIDTH = 4;
 
-/// Where each wrapped piece of `text` starts, as byte offsets; the first is 0.
-/// Breaks go after a space when there is one in reach.
+/** Where each wrapped piece of `text` starts, as byte offsets; the first is 0.
+ * Breaks go after a space when there is one in reach. */
 pub List<int> wrap_starts(str text, int width) {
     List<int> starts = [0];
     int room = width;
@@ -56,8 +56,8 @@ pub List<int> wrap_starts(str text, int width) {
     return starts;
 }
 
-/// The rows of one source line `index` (0-based), wrapped to `width` unless
-/// `width` is 0.
+/** The rows of one source line `index` (0-based), wrapped to `width` unless
+ * `width` is 0. */
 List<MDV_model.Row> source_rows(str text, int index, int width, int block) {
     List<int> starts = [0];
     if (width > 0) {
@@ -81,8 +81,8 @@ bool is_fence(str line) {
     return trimmed.starts_with("```") || trimmed.starts_with("~~~");
 }
 
-/// The ATX headings of `lines` (outside fences) with their rows found in
-/// `rows` by source line.
+/** The ATX headings of `lines` (outside fences) with their rows found in
+ * `rows` by source line. */
 pub List<MDV_model.Heading> scan_headings(List<str> lines, List<MDV_model.Row> rows) {
     List<MDV_model.Heading> out = [];
     Map<str, int> slugs = {};
@@ -284,8 +284,8 @@ bool is_blank_end(List<MDV_model.Row> rows) {
     return true;
 }
 
-/// The Live layout: the block holding `caret_line` (0-based) as source, the
-/// rest rendered from `cache`.
+/** The Live layout: the block holding `caret_line` (0-based) as source, the
+ * rest rendered from `cache`. */
 pub MDV_model.Layout live_layout(MDV_model.Document doc, List<str> lines, int caret_line, LiveCache cache, int width) {
     List<MDV_model.Row> rows = [];
     List<str> texts = [];
@@ -353,8 +353,8 @@ pub MDV_model.Layout live_layout(MDV_model.Document doc, List<str> lines, int ca
     return MDV_model.Layout(rows, heads, links, width, texts);
 }
 
-/// A source line that no block covers: shown as source when it has text or
-/// the caret, else as one blank row.
+/** A source line that no block covers: shown as source when it has text or
+ * the caret, else as one blank row. */
 void add_gap(List<MDV_model.Row> rows, List<str> texts, List<str> lines, int index, int caret_line, int width) {
     if (!is_blank(lines[index]) || index == caret_line) {
         texts.push(lines[index]);

@@ -4,6 +4,16 @@ Each version is a tag of github.com/qrazil/tui-markdown. `RENAMES.md` says what 
 these modules has to change when an API moves; this file says what each version added, changed and fixed.
 Versions up to 0.5.0 were written back from `git log`.
 
+## 0.10.2
+
+Builds and tests against m31 v0.14.2 (CI `M31_REF`, `M31_MUSL_REF`); the viewer's behaviour is unchanged: `--cat`, `--dump` and a
+scripted session on a pty write the bytes of 0.10.1 (`tests/default_bytes.py`, `tests/golden/`, `tests/pty_*.py` all unchanged;
+the 918 checks of `tests/test.sh` pass).
+
+- **Pins**: tui 0.16.1, term-markdown 0.5.1 and syntax 0.5.1, each built against m31 v0.14.2.
+- Runs of `//` comment lines are block comments (`m31c -lint --fix`), as the m31 0.14 linter requires.
+- `tests/test.sh` and `scripts/build.sh` use the 0.14 command spellings (`-emit-c ... --out`, `-fmt --check --recursive`, `-lint`).
+
 ## 0.10.1
 
 Pins tui 0.16.0 (commit b84fb58), nothing else in the viewer changed: `--cat`, `--dump` and a scripted session on a pty write the

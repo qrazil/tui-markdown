@@ -1,16 +1,16 @@
-// The viewer's state machine.
-//
-// Everything the program decides, with no terminal in sight: a `Viewer` holds
-// the document, its layout at the current width, where the window is, what is
-// being searched for, which link is focused, the back stack and the open
-// popup. `key` takes one key and answers whether to redraw or quit. What the
-// outside world must do (copy to the clipboard, read a file again, open
-// another one) is not done here but left as a `Request` for the loop to
-// carry out -- which is what makes the whole key set testable by typing
-// names into a struct (tests/t_viewer.m31) rather than through a pty.
-//
-// Rows are counted from 0; a window shows rows `top .. top + height()`; the
-// last terminal row is the status line, so `height()` is `rows - 1`.
+/* The viewer's state machine.
+ *
+ * Everything the program decides, with no terminal in sight: a `Viewer` holds
+ * the document, its layout at the current width, where the window is, what is
+ * being searched for, which link is focused, the back stack and the open
+ * popup. `key` takes one key and answers whether to redraw or quit. What the
+ * outside world must do (copy to the clipboard, read a file again, open
+ * another one) is not done here but left as a `Request` for the loop to
+ * carry out -- which is what makes the whole key set testable by typing
+ * names into a struct (tests/t_viewer.m31) rather than through a pty.
+ *
+ * Rows are counted from 0; a window shows rows `top .. top + height()`; the
+ * last terminal row is the status line, so `height()` is `rows - 1`. */
 
 import MDV_actions;
 import MDV_assist;
@@ -44,16 +44,16 @@ pub enum Request {
     Paste;
 }
 
-/// What the window shows: the rendered page, the raw markdown, or the page
-/// with the block under the caret as raw markdown.
+/** What the window shows: the rendered page, the raw markdown, or the page
+ * with the block under the caret as raw markdown. */
 pub enum Pane {
     Preview;
     Source;
     Live;
 }
 
-/// A clickable region of the header or toolbar: columns `first` up to
-/// `stop`, and the action a click runs (see `MDV_actions`).
+/** A clickable region of the header or toolbar: columns `first` up to
+ * `stop`, and the action a click runs (see `MDV_actions`). */
 pub type Button {
     pub int first;
     pub int stop;
@@ -165,8 +165,8 @@ pub type Viewer {
     pub int serial = 0;
     /// Must `doc` be made again before the next layout?
     pub bool is_doc_stale = false;
-    /// Has the text changed since `doc` was made, even if Live may go on
-    /// using the old one until the caret leaves its block?
+    /** Has the text changed since `doc` was made, even if Live may go on
+     * using the old one until the caret leaves its block? */
     pub bool is_doc_old = false;
     pub bool is_smart = false;
     /// Replace row open in the find bar, and which field has the keys.
@@ -177,8 +177,8 @@ pub type Viewer {
     pub bool is_selecting = false;
     /// What was last cut or copied here, for a paste with no system clipboard.
     pub str clipboard = "";
-    /// What a prompt is asking ("saveas", "quit", "open", "reload", "discard"),
-    /// the text typed so far, and what to do afterwards.
+    /** What a prompt is asking ("saveas", "quit", "open", "reload", "discard"),
+     * the text typed so far, and what to do afterwards. */
     pub str prompt_kind = "";
     pub str prompt_text = "";
     pub str pending_open = "";
@@ -201,8 +201,8 @@ pub type Viewer {
     pub int words_count = 0;
 }
 
-/// Rows of text on screen: all but the header, the toolbar (editing panes),
-/// the find bar and the status line.
+/** Rows of text on screen: all but the header, the toolbar (editing panes),
+ * the find bar and the status line. */
 pub int Viewer.height() {
     int room = rows - top_rows() - bar_rows() - 1;
     if (room < 1) {
@@ -328,8 +328,8 @@ pub int Viewer.max_top() {
     return most;
 }
 
-/// Where the text starts on screen: past the sidebar, centred in what is
-/// left when that is wider than the longest line.
+/** Where the text starts on screen: past the sidebar, centred in what is
+ * left when that is wider than the longest line. */
 pub int Viewer.left() {
     int side = side_width();
     int spare = columns - side - 1 - layout.width;
@@ -376,8 +376,8 @@ MDV_model.Layout Viewer.build_layout() {
     }
 }
 
-/// Columns the text gets: the window less the sidebar, the scrollbar and the
-/// margins, capped at `max_width`.
+/** Columns the text gets: the window less the sidebar, the scrollbar and the
+ * margins, capped at `max_width`. */
 pub int Viewer.text_width() {
     int width = columns - side_width() - 1 - 2 * MARGIN;
     if (max_width > 0 && width > max_width) {
@@ -413,8 +413,8 @@ pub bool Viewer.is_visible(int row) {
     return row >= top && row < top + height();
 }
 
-/// Bring `row` into view, leaving it a third of the way down when it has to
-/// scroll.
+/** Bring `row` into view, leaving it a third of the way down when it has to
+ * scroll. */
 void Viewer.reveal(int row) {
     if (is_visible(row)) {
         return;
@@ -494,8 +494,8 @@ pub void Viewer.resize(int new_columns, int new_rows) {
     }
 }
 
-/// Show another document from the top (or at the anchor or place a followed
-/// link asked for).
+/** Show another document from the top (or at the anchor or place a followed
+ * link asked for). */
 pub void Viewer.load(str path, str text) {
     name = path;
     buffer = MDV_edit.Buffer.of(text);
@@ -565,8 +565,8 @@ pub List<Request> Viewer.drain() {
     return out;
 }
 
-/// All hits of `needle` in the layout. A needle with no capital letter ignores
-/// case (smart case).
+/** All hits of `needle` in the layout. A needle with no capital letter ignores
+ * case (smart case). */
 void Viewer.find_hits() {
     hits = [];
     hit = -1;
@@ -585,8 +585,8 @@ void Viewer.find_hits() {
         }
         if (!is_exact) {
             str lowered = content.to_lower();
-            // A letter whose lower case is longer or shorter would put a hit
-            // at the wrong byte; such a row is not searched.
+            /* A letter whose lower case is longer or shorter would put a hit
+             * at the wrong byte; such a row is not searched. */
             if (lowered.size() != content.size()) {
                 continue;
             }
@@ -722,8 +722,8 @@ void Viewer.push_here() {
     did_push = true;
 }
 
-/// Follow `href`: an anchor scrolls, a markdown file is opened, anything else
-/// is copied.
+/** Follow `href`: an anchor scrolls, a markdown file is opened, anything else
+ * is copied. */
 void Viewer.follow(str href) {
     if (href.size() == 0) {
         message = "link has no target";
@@ -883,8 +883,8 @@ void Viewer.half_page(int step) {
     scroll_to(top + step * size * take());
 }
 
-/// Move to the `times`-th heading below (step 1) or above (step -1) the top
-/// of the window.
+/** Move to the `times`-th heading below (step 1) or above (step -1) the top
+ * of the window. */
 void Viewer.heading(int step, int times) {
     int target = -1;
     int found = 0;
@@ -1197,8 +1197,8 @@ pub void Viewer.toggle_side() {
     relayout();
 }
 
-/// The heading whose section the row `row` is in: the last heading at or
-/// above it, -1 before the first.
+/** The heading whose section the row `row` is in: the last heading at or
+ * above it, -1 before the first. */
 pub int Viewer.heading_at(int row) {
     int found = -1;
     for (int index in 0 .. layout.headings.size()) {
@@ -1209,8 +1209,8 @@ pub int Viewer.heading_at(int row) {
     return found;
 }
 
-/// The headings above the top of the window, outermost first: where the
-/// reader is, as the header's breadcrumb shows it.
+/** The headings above the top of the window, outermost first: where the
+ * reader is, as the header's breadcrumb shows it. */
 pub List<str> Viewer.crumbs() {
     List<str> out = [];
     List<int> levels = [];
@@ -1289,8 +1289,8 @@ void Viewer.drag_to(int y) {
     scroll_to(along * max_top() / (track - 1));
 }
 
-/// A click on a rendered row (Preview, or a rendered block in Live): a task
-/// box ticks, a link follows when it should, anything else is for the caret.
+/** A click on a rendered row (Preview, or a rendered block in Live): a task
+ * box ticks, a link follows when it should, anything else is for the caret. */
 bool Viewer.did_click_rendered(int at_row, int x, bool is_ctrl) {
     match (span_at(at_row, x)) {
         case Some(MDV_model.Span span): {
@@ -1337,8 +1337,8 @@ void Viewer.editing_click(int at_row, int x, term.Mouse report) {
     after(old_row, old_lines, false);
 }
 
-/// Where a menu click lands on the palette: run the row under it, or close
-/// the palette when the click is outside the box.
+/** Where a menu click lands on the palette: run the row under it, or close
+ * the palette when the click is outside the box. */
 TUI_app.Action Viewer.palette_click(int x, int y) {
     if (x < palette_x0 || x >= palette_x1) {
         mode = Mode.Normal;
@@ -1353,11 +1353,11 @@ TUI_app.Action Viewer.palette_click(int x, int y) {
     return TUI_app.Action.Redraw;
 }
 
-/// One mouse report (1-based `col` and `row`): the wheel scrolls, a click in
-/// the header or the toolbar presses a button, in the sidebar jumps to a
-/// heading, on the scrollbar moves the window, on text follows a link (Preview)
-/// or places the caret (the editing panes); a drag selects; motion shows the
-/// link under the pointer.
+/** One mouse report (1-based `col` and `row`): the wheel scrolls, a click in
+ * the header or the toolbar presses a button, in the sidebar jumps to a
+ * heading, on the scrollbar moves the window, on text follows a link (Preview)
+ * or places the caret (the editing panes); a drag selects; motion shows the
+ * link under the pointer. */
 pub TUI_app.Action Viewer.mouse(term.Mouse report) {
     int x = report.col - 1;
     int y = report.row - 1;
@@ -1458,8 +1458,8 @@ pub TUI_app.Action Viewer.mouse(term.Mouse report) {
                     int old_row = buffer.caret.row;
                     int old_lines = buffer.lines.size();
                     buffer.place(position_at(at_row, x), true);
-                    // Dragging must not align a table or change the layout
-                    // under the pointer.
+                    /* Dragging must not align a table or change the layout
+                     * under the pointer. */
                     reveal_caret();
                 }
                 return TUI_app.Action.Redraw;
@@ -1521,8 +1521,8 @@ bool Viewer.is_palette_open() {
     }
 }
 
-/// Show `target`, keeping the place: the line at the top of the window stays
-/// there, and the caret starts on it when editing begins.
+/** Show `target`, keeping the place: the line at the top of the window stays
+ * there, and the caret starts on it when editing begins. */
 pub void Viewer.set_pane(Pane target) {
     int line = 1;
     match (pane) {
@@ -1613,8 +1613,8 @@ pub MDV_edit.Pos Viewer.position_at(int at_row, int x) {
         }
         int found = MDV_edit.col_for_width(piece, relative);
         str whole = buffer.lines[line_index];
-        // Past the end of a wrapped piece is its last character, not the
-        // start of the next piece.
+        /* Past the end of a wrapped piece is its last character, not the
+         * start of the next piece. */
         if (found >= piece.size() && each.col + piece.size() < whole.size() && piece.size() > 0) {
             found = MDV_edit.previous_col(piece, found);
         }
@@ -1687,8 +1687,8 @@ void Viewer.move_rows(int delta, bool is_extend) {
     buffer.want = keep;
 }
 
-/// The markdown classes of every byte of source line `line_index`, found
-/// lazily and kept until a splice above it.
+/** The markdown classes of every byte of source line `line_index`, found
+ * lazily and kept until a splice above it. */
 pub List<int> Viewer.line_classes(int line_index) {
     if (line_index < 0 || line_index >= buffer.lines.size()) {
         return [];
@@ -1733,9 +1733,9 @@ pub int Viewer.words() {
     return total;
 }
 
-/// Bring everything that depends on the text up to date after a command that
-/// may have changed it or moved the caret. `old_row` and `old_lines` are what
-/// they were before; `is_forced` says the change may reach across blocks.
+/** Bring everything that depends on the text up to date after a command that
+ * may have changed it or moved the caret. `old_row` and `old_lines` are what
+ * they were before; `is_forced` says the change may reach across blocks. */
 void Viewer.after(int old_row, int old_lines, bool is_forced) {
     if (old_row != buffer.caret.row && old_row < buffer.lines.size()) {
         List<int> was = MDV_assist.table_range(buffer, old_row);
@@ -1983,8 +1983,8 @@ void Viewer.cut() {
     message = "cut " + str(text.chars().size()) + " characters";
 }
 
-/// Text arrived from the clipboard or as a bracketed paste. `kind` is
-/// "image" or "file" when it is a path to one, else "".
+/** Text arrived from the clipboard or as a bracketed paste. `kind` is
+ * "image" or "file" when it is a path to one, else "". */
 pub void Viewer.paste_text(str text, str kind) {
     match (mode) {
         case Find: {
@@ -2217,8 +2217,8 @@ TUI_app.Action Viewer.palette_key(term.Key pressed, str key_name) {
     return TUI_app.Action.Redraw;
 }
 
-/// Open the find bar (with the replace row when `should_replace`), starting from
-/// the selected word when there is one.
+/** Open the find bar (with the replace row when `should_replace`), starting from
+ * the selected word when there is one. */
 pub void Viewer.open_find(bool should_replace) {
     mode = Mode.Find;
     is_replace = should_replace;
@@ -2234,8 +2234,8 @@ pub void Viewer.open_find(bool should_replace) {
     refind();
 }
 
-/// Search again for the finder's needle: the source matches and the hits
-/// drawn on the layout.
+/** Search again for the finder's needle: the source matches and the hits
+ * drawn on the layout. */
 void Viewer.refind() {
     finder.search(buffer.lines);
     needle = finder.needle;
@@ -2607,8 +2607,8 @@ pub void Viewer.toggle_task(int line_number) {
     }
 }
 
-/// A viewer showing `text` (the contents of `name`) in a terminal of `columns` x
-/// `rows`.
+/** A viewer showing `text` (the contents of `name`) in a terminal of `columns` x
+ * `rows`. */
 pub Viewer open(List<str> files, str name, str text, int columns, int rows) {
     MDV_model.Document doc = MDV_prepare.prepare(text);
     MDV_model.Layout layout = MDV_layout.layout(doc, text_width_for(columns));
@@ -2679,8 +2679,8 @@ bool is_markdown_path(str path) {
     return lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdown") || lower.ends_with(".txt");
 }
 
-/// The path a link in the file `base` means by `path`: relative to `base`'s
-/// directory unless it is absolute.
+/** The path a link in the file `base` means by `path`: relative to `base`'s
+ * directory unless it is absolute. */
 pub str resolve(str base, str path) {
     if (path.starts_with("/")) {
         return path;

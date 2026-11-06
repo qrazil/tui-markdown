@@ -1,16 +1,16 @@
-// Layout: the model slot one width, as rows of styled spans.
-//
-// Pure: the same document, options and width always give the same rows, and
-// nothing here knows about colours (see `MDV_theme`) or the terminal. A row's
-// spans say what each run IS through style bits; `DECO` marks everything that
-// is chrome (bullets, quote bars, table borders, a rule, padding, a callout's
-// title) so that what is left over is exactly the document's text, which the
-// oracle test checks against term-markdown's own HTML.
-//
-// Backgrounds (a block quote's tint, a code card, an H1 band) are made by
-// padding every row of the block out to the full width with spaces that carry
-// the block's bit, so the colour is a property of the spans, never of the
-// renderer, and `--dump` and the screen agree.
+/* Layout: the model slot one width, as rows of styled spans.
+ *
+ * Pure: the same document, options and width always give the same rows, and
+ * nothing here knows about colours (see `MDV_theme`) or the terminal. A row's
+ * spans say what each run IS through style bits; `DECO` marks everything that
+ * is chrome (bullets, quote bars, table borders, a rule, padding, a callout's
+ * title) so that what is left over is exactly the document's text, which the
+ * oracle test checks against term-markdown's own HTML.
+ *
+ * Backgrounds (a block quote's tint, a code card, an H1 band) are made by
+ * padding every row of the block out to the full width with spaces that carry
+ * the block's bit, so the colour is a property of the spans, never of the
+ * renderer, and `--dump` and the screen agree. */
 
 import MDV_model;
 import MDV_wrap;
@@ -29,14 +29,14 @@ pub type Options {
     pub bool is_zebra = false;
     /// Line numbers in code cards.
     pub bool has_numbers = false;
-    /// Code and metadata cards are drawn with a box-drawing rule above and below and a bar
-    /// at the left, for a terminal that shows the desktop through the page: the card's tint
-    /// is not there to tell it from the text.
+    /** Code and metadata cards are drawn with a box-drawing rule above and below and a bar
+     * at the left, for a terminal that shows the desktop through the page: the card's tint
+     * is not there to tell it from the text. */
     pub bool is_framed = false;
 }
 
-/// Rows and the headings found among them, rows counted from this part's own
-/// first row.
+/** Rows and the headings found among them, rows counted from this part's own
+ * first row. */
 type Part {
     List<MDV_model.Row> rows;
     List<MDV_model.Heading> heads;
@@ -104,8 +104,8 @@ List<MDV_model.Span> filled(List<MDV_model.Span> spans, int width, int bits) {
     return out;
 }
 
-/// Every row of `part` with `bits` on all its spans and padded to `width`;
-/// blank rows become a row of the fill alone.
+/** Every row of `part` with `bits` on all its spans and padded to `width`;
+ * blank rows become a row of the fill alone. */
 Part tinted(Part part, int width, int bits) {
     Part out = Part([], part.heads);
     for (MDV_model.Row row in part.rows) {
@@ -115,8 +115,8 @@ Part tinted(Part part, int width, int bits) {
     return out;
 }
 
-/// `part` with a prefix on every row: `first` on the first, `rest` on the
-/// others. Blank rows get `rest` only when `is_blank_marked`.
+/** `part` with a prefix on every row: `first` on the first, `rest` on the
+ * others. Blank rows get `rest` only when `is_blank_marked`. */
 Part indent(Part part, MDV_model.Span first, MDV_model.Span rest, bool is_blank_marked) {
     Part out = Part([], part.heads);
     for (int index in 0 .. part.rows.size()) {
@@ -247,8 +247,8 @@ Part heading(Context context, MDV_model.HeadingBlock block, int width) {
     }
     Part part = leaf(context, lines, block.line, block.plain);
     if (big > 0) {
-        // Pairs of rows: the first of each pair holds the scaled text, the
-        // second is covered by it; the under-rule slot the end is ordinary.
+        /* Pairs of rows: the first of each pair holds the scaled text, the
+         * second is covered by it; the under-rule slot the end is ordinary. */
         List<MDV_model.Row> marked = [];
         for (int index in 0 .. part.rows.size()) {
             MDV_model.Row row = part.rows[index];
@@ -375,8 +375,8 @@ Part code(Context context, MDV_model.CodeBlock block, int width) {
     return leaf(context, lines, block.line, plain.join("\n"));
 }
 
-/// The top or bottom row of a card, `width` columns: blank when the card is tinted, a
-/// rounded corner and a rule when it is framed.
+/** The top or bottom row of a card, `width` columns: blank when the card is tinted, a
+ * rounded corner and a rule when it is framed. */
 str rule_text(Context context, str corner, int width) {
     if (!context.options.is_framed) {
         return spaces(width);
@@ -536,8 +536,8 @@ str marker_of(Context context, MDV_model.ListBlock list, int index, MDV_model.Li
     return bullet_of(context.depth);
 }
 
-/// The first paragraph's `[ ]` / `[x]` span as chrome (the glyph stands for
-/// it), so the text after it is all that is left of the item's words.
+/** The first paragraph's `[ ]` / `[x]` span as chrome (the glyph stands for
+ * it), so the text after it is all that is left of the item's words. */
 List<MDV_model.Block> without_box(List<MDV_model.Block> kids) {
     List<MDV_model.Block> out = [];
     for (int index in 0 .. kids.size()) {
@@ -629,8 +629,8 @@ bool is_list(MDV_model.Block block) {
 }
 
 Part items(Context context, MDV_model.ListBlock list, int width) {
-    // Numbers are as wide as the widest one and right-aligned, and every
-    // marker is as wide as the widest, so the text lines up.
+    /* Numbers are as wide as the widest one and right-aligned, and every
+     * marker is as wide as the widest, so the text lines up. */
     int digits = str(list.start + list.items.size() - 1).size();
     int lead = 2;
     for (int index in 0 .. list.items.size()) {
@@ -713,8 +713,8 @@ List<MDV_model.Span> border(str left, str middle, str right, str dash, List<int>
     return [chrome(parts.join(""), MDV_model.BORDER)];
 }
 
-/// One table row of cells as terminal rows: cells wrapped to their column and
-/// padded to a common height. `bits` shade the cells (header, zebra).
+/** One table row of cells as terminal rows: cells wrapped to their column and
+ * padded to a common height. `bits` shade the cells (header, zebra). */
 List<List<MDV_model.Span>> table_row(List<MDV_model.Cell> cells, List<int> widths, List<int> align, int bits) {
     List<List<List<MDV_model.Span>>> columns = [];
     int height = 1;

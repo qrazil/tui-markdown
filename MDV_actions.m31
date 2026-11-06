@@ -1,9 +1,9 @@
-// Every command the program has, by number: what the command palette lists,
-// what the toolbar buttons and the mouse ask for, and the key that does it.
-//
-// The viewer runs an action with `run_action(id)`; this module only names
-// them, so the palette, the toolbar and the help screen cannot disagree about
-// what exists or what its key is.
+/* Every command the program has, by number: what the command palette lists,
+ * what the toolbar buttons and the mouse ask for, and the key that does it.
+ *
+ * The viewer runs an action with `run_action(id)`; this module only names
+ * them, so the palette, the toolbar and the help screen cannot disagree about
+ * what exists or what its key is. */
 
 import MDV_theme;
 
@@ -75,8 +75,8 @@ pub List<Action> all() {
     return out;
 }
 
-/// The actions whose title holds every word of `query` (any case), best
-/// first: a title that starts with the first word, then the others in order.
+/** The actions whose title holds every word of `query` (any case), best
+ * first: a title that starts with the first word, then the others in order. */
 pub List<Action> filter(str query) {
     List<str> words = [];
     for (str piece in query.to_lower().split(" ")) {

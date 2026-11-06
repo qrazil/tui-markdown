@@ -1,11 +1,11 @@
-// `--cat` and `--dump`: the layout as ANSI text, for a pipe, a pager, or a
-// file to look at.
-//
-// The same rows the viewer shows, written once: every row's spans styled by
-// the theme, the pen changed only when the style changes, and a reset at the
-// end of each styled row. With the plain theme (NO_COLOR) there is not one
-// escape in the output. With `caps.has_links` a link's text is wrapped in
-// OSC 8, and with `caps.has_scale` a scaled heading is an OSC 66 sequence.
+/* `--cat` and `--dump`: the layout as ANSI text, for a pipe, a pager, or a
+ * file to look at.
+ *
+ * The same rows the viewer shows, written once: every row's spans styled by
+ * the theme, the pen changed only when the style changes, and a reset at the
+ * end of each styled row. With the plain theme (NO_COLOR) there is not one
+ * escape in the output. With `caps.has_links` a link's text is wrapped in
+ * OSC 8, and with `caps.has_scale` a scaled heading is an OSC 66 sequence. */
 
 import MDV_caps;
 import MDV_layout;
@@ -32,8 +32,8 @@ pub str encode_uri(str href) {
     return out.join("");
 }
 
-/// Does a link to `href` get an OSC 8 sequence? A `#anchor` or a relative
-/// path means nothing to the terminal; the viewer follows those itself.
+/** Does a link to `href` get an OSC 8 sequence? A `#anchor` or a relative
+ * path means nothing to the terminal; the viewer follows those itself. */
 pub bool is_openable(str href) {
     if (href.size() == 0 || href.starts_with("#")) {
         return false;
@@ -41,8 +41,8 @@ pub bool is_openable(str href) {
     return href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") || href.starts_with("ftp://");
 }
 
-/// The OSC 8 sequence that starts link `index` going to `href`, or closes
-/// the open one when `href` is "".
+/** The OSC 8 sequence that starts link `index` going to `href`, or closes
+ * the open one when `href` is "". */
 pub str link_sequence(int index, str href) {
     if (href.size() == 0) {
         return "\x1b]8;;" + ESC_ST;
@@ -55,17 +55,17 @@ pub str scaled_sequence(int scale, str text) {
     return "\x1b]66;s=" + str(scale) + ";" + text + ESC_ST;
 }
 
-/// `layout` as bytes in the terminal's language at colour depth `depth`.
-/// Rows start `left` columns in and are padded to `pad` columns with the
-/// theme's background when `pad` is above zero (a dump shows the page as it
-/// is on screen).
+/** `layout` as bytes in the terminal's language at colour depth `depth`.
+ * Rows start `left` columns in and are padded to `pad` columns with the
+ * theme's background when `pad` is above zero (a dump shows the page as it
+ * is on screen). */
 pub bytes render_with(MDV_model.Layout layout, MDV_theme.Theme theme, MDV_caps.Caps caps, int left, int pad) {
     bytes out = [];
     TUI_style.Depth depth = caps.depth;
     TUI_style.Style page = MDV_theme.base_style(theme);
     int base = page.pack();
-    // A print to a pipe leaves the page's own background to the terminal; a
-    // dump paints it.
+    /* A print to a pipe leaves the page's own background to the terminal; a
+     * dump paints it. */
     bool is_page = pad > 0;
     for (MDV_model.Row row in layout.rows) {
         if (row.big < 0) {
@@ -142,8 +142,8 @@ pub bytes cat(str source, int width, MDV_theme.Theme theme, TUI_style.Depth dept
     return render(MDV_layout.layout(MDV_prepare.prepare(source), width), theme, depth);
 }
 
-/// The markdown in `source` as the screen shows it: laid out as `options`
-/// say, written with `caps`, padded to `pad` columns.
+/** The markdown in `source` as the screen shows it: laid out as `options`
+ * say, written with `caps`, padded to `pad` columns. */
 pub bytes dump(str source, MDV_layout.Options options, MDV_theme.Theme theme, MDV_caps.Caps caps, int left, int pad) {
     return render_with(MDV_layout.layout_with(MDV_prepare.prepare(source), options), theme, caps, left, pad);
 }

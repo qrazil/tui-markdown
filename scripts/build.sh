@@ -48,7 +48,7 @@ fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-"$LANGC" --emit-c tui_markdown.m31 -o "$tmp/out.c"
+"$LANGC" -emit-c tui_markdown.m31 --out "$tmp/out.c"
 # RT_REACTOR_C/RT_CTX_ASM (from runtime/arch.sh above) are paths relative to
 # M31_ROOT, not to this script's own directory -- prefix them before use.
 "$CC" -O2 -pthread -I "$M31_ROOT/runtime" -o "$out" "$tmp/out.c" \

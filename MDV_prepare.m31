@@ -1,19 +1,19 @@
-// term-markdown's block tree to the viewer's model.
-//
-//   MD_blocks.parse(source)   blocks holding raw inline source
-//   MD_inlines.render         that source as HTML (the only inline output)
-//   MDV_inline.parse          the HTML as styled spans
-//
-// Three things the upstream tree does not carry are added here:
-//
-//   - source lines. A block does not know where it came from, so each leaf
-//     block is searched for in the source, forward from the end of the one
-//     before. That is exact for anything the parser does not rewrite and a
-//     near miss for the rest; a miss only moves a `Row.line` by a few lines
-//     (it is used to keep the place across a reload, never to show text).
-//   - heading anchors (GitHub's slugs), for `[text](#anchor)` links.
-//   - task-list markers. `- [x] done` is an ordinary item upstream; here the
-//     item is flagged and the marker's three characters get their own span.
+/* term-markdown's block tree to the viewer's model.
+ *
+ *   MD_blocks.parse(source)   blocks holding raw inline source
+ *   MD_inlines.render         that source as HTML (the only inline output)
+ *   MDV_inline.parse          the HTML as styled spans
+ *
+ * Three things the upstream tree does not carry are added here:
+ *
+ *   - source lines. A block does not know where it came from, so each leaf
+ *     block is searched for in the source, forward from the end of the one
+ *     before. That is exact for anything the parser does not rewrite and a
+ *     near miss for the rest; a miss only moves a `Row.line` by a few lines
+ *     (it is used to keep the place across a reload, never to show text).
+ *   - heading anchors (GitHub's slugs), for `[text](#anchor)` links.
+ *   - task-list markers. `- [x] done` is an ordinary item upstream; here the
+ *     item is flagged and the marker's three characters get their own span. */
 
 import MDV_code;
 import MDV_inline;
@@ -34,8 +34,8 @@ type Prep {
     List<str> used;
 }
 
-/// Find `needle` on a source line at or after the cursor; the 1-based line,
-/// or the cursor's own line when it is not found (the cursor stays).
+/** Find `needle` on a source line at or after the cursor; the 1-based line,
+ * or the cursor's own line when it is not found (the cursor stays). */
 int Prep.locate(str needle) {
     if (needle.size() > 0) {
         for (int index in cursor .. lines.size()) {
@@ -60,8 +60,8 @@ List<MDV_model.Span> Prep.inline(str raw, int style) {
     return decorate(MDV_inline.parse(MD_inlines.render(raw, references), links, style));
 }
 
-/// Strikethrough (`~~x~~`) and footnote references (`[^x]`), which the
-/// parser leaves as text.
+/** Strikethrough (`~~x~~`) and footnote references (`[^x]`), which the
+ * parser leaves as text. */
 List<MDV_model.Span> Prep.decorate(List<MDV_model.Span> spans) {
     int markers = 0;
     bool has_ref = false;
@@ -400,8 +400,8 @@ str callout_title(int kind) {
     return "Caution";
 }
 
-/// GitHub's anchor for heading text: lower case, punctuation dropped, spaces
-/// and hyphens as hyphens. Non-ASCII letters stay as they are.
+/** GitHub's anchor for heading text: lower case, punctuation dropped, spaces
+ * and hyphens as hyphens. Non-ASCII letters stay as they are. */
 pub str slugify(str heading) {
     List<int> out = [];
     for (int code in heading.to_lower().chars()) {
@@ -454,8 +454,8 @@ int line_count(str raw) {
     return raw.trim().split("\n").size();
 }
 
-/// The task state of a list item whose first block is a paragraph that opens
-/// with `[ ] ` or `[x] `: 0 for none, 1 unchecked, 2 checked.
+/** The task state of a list item whose first block is a paragraph that opens
+ * with `[ ] ` or `[x] `: 0 for none, 1 unchecked, 2 checked. */
 int task_of(List<MDV_model.Block> kids) {
     if (kids.size() == 0) {
         return 0;
@@ -555,8 +555,8 @@ List<MDV_model.Block> mark_task(List<MDV_model.Block> kids, int task) {
     return out;
 }
 
-/// `source` split into front matter lines (none when it has none) and the
-/// rest, the front matter's lines blanked so line numbers still count.
+/** `source` split into front matter lines (none when it has none) and the
+ * rest, the front matter's lines blanked so line numbers still count. */
 type Front {
     List<str> meta;
     str body;
@@ -593,8 +593,8 @@ Front split_front(str source) {
     return Front([], source, 0);
 }
 
-/// Pull `[^label]: text` definitions out of `body` (blanking their lines);
-/// fenced code is left alone.
+/** Pull `[^label]: text` definitions out of `body` (blanking their lines);
+ * fenced code is left alone. */
 str take_notes(str body, Map<str, str> notes, List<str> order) {
     if (!body.contains("[^")) {
         return body;

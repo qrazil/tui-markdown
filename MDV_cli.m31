@@ -17,7 +17,7 @@ import tui.core.TUI_style;
 
 pub const int DEFAULT_CAT_WIDTH = 80;
 /// Keep in step with `version` in the `deps` file.
-pub const str VERSION = "0.10.1";
+pub const str VERSION = "0.10.2";
 /// What `--theme` accepts, as the usage error lists them.
 const str THEME_NAMES = "dark, light, tokyonight, nightfox, gruvbox-material, plain";
 
@@ -59,8 +59,8 @@ bool has_no_color() {
     }
 }
 
-/// Dark unless COLORFGBG ("fg;bg", set by some terminals) says the
-/// background is a light colour.
+/** Dark unless COLORFGBG ("fg;bg", set by some terminals) says the
+ * background is a light colour. */
 bool is_light_background() {
     match (os.env("COLORFGBG")) {
         case Some(str value): {
@@ -104,8 +104,8 @@ MDV_theme.Theme pick_theme(args.Parsed given) {
     return MDV_theme.dark();
 }
 
-/// The transparency asked for: `--transparent`, else `TUI_MARKDOWN_TRANSPARENT`, else off.
-/// `refuse_values` has already said no to a word that is neither.
+/** The transparency asked for: `--transparent`, else `TUI_MARKDOWN_TRANSPARENT`, else off.
+ * `refuse_values` has already said no to a word that is neither. */
 int pick_transparency(args.Parsed given) {
     match (given.value("transparent")) {
         case Some(str mode): {
@@ -117,9 +117,9 @@ int pick_transparency(args.Parsed given) {
     return MDV_theme.mode_of(os.env("TUI_MARKDOWN_TRANSPARENT").or(""));
 }
 
-/// What a switch (`--scale`, `--links`) comes to: `on` and `off` are what they
-/// say; `auto` is what the environment says (`is_detected`, from
-/// `MDV_caps.detect`), whether or not the output is a screen.
+/** What a switch (`--scale`, `--links`) comes to: `on` and `off` are what they
+ * say; `auto` is what the environment says (`is_detected`, from
+ * `MDV_caps.detect`), whether or not the output is a screen. */
 pub bool is_switched_on(str mode, bool is_current, bool is_detected) {
     if (mode == "on") {
         return true;
@@ -133,8 +133,8 @@ pub bool is_switched_on(str mode, bool is_current, bool is_detected) {
     return is_current;
 }
 
-/// The capabilities to use: what the environment says, overridden by the
-/// flags.
+/** The capabilities to use: what the environment says, overridden by the
+ * flags. */
 MDV_caps.Caps pick_caps(args.Parsed given, bool is_screen) {
     MDV_caps.Caps caps = MDV_caps.bare();
     if (is_screen) {
@@ -243,8 +243,8 @@ int text_width(int width, int max_width) {
     return text;
 }
 
-/// Are cards drawn with a frame? Only when every surface is transparent (the tint that told a
-/// card from the text is gone), and not in the plain theme, which never had one.
+/** Are cards drawn with a frame? Only when every surface is transparent (the tint that told a
+ * card from the text is gone), and not in the plain theme, which never had one. */
 bool is_framed(MDV_theme.Theme theme) {
     return theme.transparency == MDV_theme.ALL && !theme.is_plain;
 }
@@ -285,17 +285,17 @@ int run_cat(List<str> names, Look look) {
     return 0;
 }
 
-/// How long a read waits, which is also how long a held Escape waits for the
-/// rest of a key sequence.
+/** How long a read waits, which is also how long a held Escape waits for the
+ * rest of a key sequence. */
 const int ESCAPE_WAIT_MS = 50;
 /// How often the timer asks whether the file changed on disk.
 const int WATCH_MS = 250;
 
-/// The loop's settings. Mouse reports are asked for with
-/// `should_report_raw_mouse` and `should_report_hover` rather than with
-/// `should_report_mouse`: the loop would then route them to a `MouseHandler`,
-/// and the viewer takes the raw reports. One frame per event
-/// (`drain_events`), as it always was.
+/** The loop's settings. Mouse reports are asked for with
+ * `should_report_raw_mouse` and `should_report_hover` rather than with
+ * `should_report_mouse`: the loop would then route them to a `MouseHandler`,
+ * and the viewer takes the raw reports. One frame per event
+ * (`drain_events`), as it always was. */
 pub TUI_app.Loop make_loop(MDV_caps.Caps caps) {
     TUI_app.Loop loop = TUI_app.Loop(depth: caps.depth);
     loop.input_fd = TUI_app.INPUT_AUTO;
@@ -357,8 +357,8 @@ int run_viewer(List<str> names, List<str> files, Look look, bool is_watching, bo
     }
 }
 
-// A value that is not one of the words its option takes. Said once, up front,
-// as a usage error (it used to warn and fall back to dark).
+/* A value that is not one of the words its option takes. Said once, up front,
+ * as a usage error (it used to warn and fall back to dark). */
 str refuse_values(args.Parsed given) {
     match (given.value("theme")) {
         case Some(str name): {

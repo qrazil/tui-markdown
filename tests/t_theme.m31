@@ -1,15 +1,15 @@
-// The transparency resolver (`MDV_theme.transparent_style` and the style
-// functions that go through it), for every theme, with no terminal.
-//
-//   * off: the styles are the 0.9.0 ones (spot values), and nothing else is touched;
-//   * on: no style a theme hands out has a background except the highlights
-//     (selection, search hits, the focused link, a chosen row), and those have
-//     text that reads on it; no reversed style except a highlight's;
-//   * popups: only the popup style loses its background; the page's styles are
-//     the theme's own;
-//   * the mode words, `next_after`, and the cards' frame in the layout.
-//
-// Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`.
+/* The transparency resolver (`MDV_theme.transparent_style` and the style
+ * functions that go through it), for every theme, with no terminal.
+ *
+ *   * off: the styles are the 0.9.0 ones (spot values), and nothing else is touched;
+ *   * on: no style a theme hands out has a background except the highlights
+ *     (selection, search hits, the focused link, a chosen row), and those have
+ *     text that reads on it; no reversed style except a highlight's;
+ *   * popups: only the popup style loses its background; the page's styles are
+ *     the theme's own;
+ *   * the mode words, `next_after`, and the cards' frame in the layout.
+ *
+ * Output: one `ok`/`FAIL` line per check and a last line `N passed, M failed`. */
 
 import MDV_layout;
 import MDV_model;
